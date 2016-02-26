@@ -68,11 +68,10 @@ bool AiSequence::getCombatTarget(MWWorld::Ptr &targetActor) const
 {
     if (getTypeId() != AiPackage::TypeIdCombat)
         return false;
-    const AiCombat *combat = static_cast<const AiCombat *>(mPackages.front());
     
-    targetActor = combat->getTarget();
+    targetActor = mPackages.front()->getTarget();
 
-    return true;
+    return !targetActor.isEmpty();
 }
 
 std::list<AiPackage*>::const_iterator AiSequence::begin() const
@@ -114,8 +113,7 @@ bool AiSequence::isInCombat(const MWWorld::Ptr &actor) const
     {
         if ((*it)->getTypeId() == AiPackage::TypeIdCombat)
         {
-            const AiCombat *combat = static_cast<const AiCombat *>(*it);
-            if (combat->getTarget() == actor)
+            if ((*it)->getTarget() == actor)
                 return true;
         }
     }
@@ -153,82 +151,85 @@ void AiSequence::execute (const MWWorld::Ptr& actor, CharacterController& charac
 {
     if(actor != getPlayer())
     {
-        if (!mPackages.empty())
+        if (mPackages.empty())
         {
-            MWMechanics::AiPackage* package = mPackages.front();
-            mLastAiPackage = package->getTypeId();
+            mLastAiPackage = -1;
+            return;
+        }
 
-            // if active package is combat one, choose nearest target
-            if (mLastAiPackage == AiPackage::TypeIdCombat)
+        MWMechanics::AiPackage* package = mPackages.front();
+        mLastAiPackage = package->getTypeId();
+
+        // if active package is combat one, choose nearest target
+        if (mLastAiPackage == AiPackage::TypeIdCombat)
+        {
+            std::list<AiPackage *>::iterator itActualCombat;
+
+            float nearestDist = std::numeric_limits<float>::max();
+            osg::Vec3f vActorPos = actor.getRefData().getPosition().asVec3();
+
+            for(std::list<AiPackage *>::iterator it = mPackages.begin(); it != mPackages.end();)
             {
-                std::list<AiPackage *>::iterator itActualCombat;
+                if ((*it)->getTypeId() != AiPackage::TypeIdCombat) break;
 
-                float nearestDist = std::numeric_limits<float>::max();
-                osg::Vec3f vActorPos = actor.getRefData().getPosition().asVec3();
+                MWWorld::Ptr target = static_cast<const AiCombat *>(*it)->getTarget();
 
-                for(std::list<AiPackage *>::iterator it = mPackages.begin(); it != mPackages.end();)
+                // target disappeared (e.g. summoned creatures)
+                if (target.isEmpty())
                 {
-                    if ((*it)->getTypeId() != AiPackage::TypeIdCombat) break;
-
-                    MWWorld::Ptr target = static_cast<const AiCombat *>(*it)->getTarget();
-
-                    // target disappeared (e.g. summoned creatures)
-                    if (target.isEmpty())
-                    {
-                        delete *it;
-                        it = mPackages.erase(it);
-                    }
-                    else
-                    {
-                        const ESM::Position &targetPos = target.getRefData().getPosition();
-
-                        float distTo = (targetPos.asVec3() - vActorPos).length();
-
-                        // Small threshold for changing target
-                        if (it == mPackages.begin())
-                            distTo = std::max(0.f, distTo - 50.f);
-
-                        if (distTo < nearestDist)
-                        {
-                            nearestDist = distTo;
-                            itActualCombat = it;
-                        }
-                        ++it;
-                    }
+                    delete *it;
+                    it = mPackages.erase(it);
                 }
-
-                if (!mPackages.empty())
+                else
                 {
-                    if (nearestDist < std::numeric_limits<float>::max() && mPackages.begin() != itActualCombat)
+                    const ESM::Position &targetPos = target.getRefData().getPosition();
+
+                    float distTo = (targetPos.asVec3() - vActorPos).length();
+
+                    // Small threshold for changing target
+                    if (it == mPackages.begin())
+                        distTo = std::max(0.f, distTo - 50.f);
+
+                    if (distTo < nearestDist)
                     {
-                        // move combat package with nearest target to the front
-                        mPackages.splice(mPackages.begin(), mPackages, itActualCombat);
+                        nearestDist = distTo;
+                        itActualCombat = it;
                     }
-
-                    package = mPackages.front();
-                    mLastAiPackage = package->getTypeId();
-                }
-                else 
-                {
-                    mDone = true;
-                    return;
+                    ++it;
                 }
             }
 
-            if (package->execute (actor,characterController,state,duration))
+            if (!mPackages.empty())
             {
-                // To account for the rare case where AiPackage::execute() queued another AI package
-                // (e.g. AiPursue executing a dialogue script that uses startCombat)
-                std::list<MWMechanics::AiPackage*>::iterator toRemove =
-                        std::find(mPackages.begin(), mPackages.end(), package);
-                mPackages.erase(toRemove);
-                delete package;
-                mDone = true;
+                if (nearestDist < std::numeric_limits<float>::max() && mPackages.begin() != itActualCombat)
+                {
+                    // move combat package with nearest target to the front
+                    mPackages.splice(mPackages.begin(), mPackages, itActualCombat);
+                }
+
+                package = mPackages.front();
+                mLastAiPackage = package->getTypeId();
             }
             else
             {
-                mDone = false;
+                mDone = true;
+                return;
             }
+        }
+
+        if (package->execute (actor,characterController,state,duration))
+        {
+            // To account for the rare case where AiPackage::execute() queued another AI package
+            // (e.g. AiPursue executing a dialogue script that uses startCombat)
+            std::list<MWMechanics::AiPackage*>::iterator toRemove =
+                    std::find(mPackages.begin(), mPackages.end(), package);
+            mPackages.erase(toRemove);
+            delete package;
+            mDone = true;
+        }
+        else
+        {
+            mDone = false;
         }
     }
 }
@@ -251,13 +252,8 @@ void AiSequence::stack (const AiPackage& package, const MWWorld::Ptr& actor)
         // Notify AiWander of our current position so we can return to it after combat finished
         for (std::list<AiPackage *>::const_iterator iter (mPackages.begin()); iter!=mPackages.end(); ++iter)
         {
-            if((*iter)->getTypeId() == AiPackage::TypeIdPursue && package.getTypeId() == AiPackage::TypeIdPursue
-                && static_cast<const AiPursue*>(*iter)->getTarget() == static_cast<const AiPursue*>(&package)->getTarget())
-            {
-                return; // target is already pursued
-            }
             if((*iter)->getTypeId() == AiPackage::TypeIdCombat && package.getTypeId() == AiPackage::TypeIdCombat
-                && static_cast<const AiCombat*>(*iter)->getTarget() == static_cast<const AiCombat*>(&package)->getTarget())
+                && (*iter)->getTarget() == (&package)->getTarget())
             {
                 return; // already in combat with this actor
             }
@@ -266,6 +262,19 @@ void AiSequence::stack (const AiPackage& package, const MWWorld::Ptr& actor)
         }
     }
 
+    // remove previous packages if required
+    if (package.shouldCancelPreviousAi())
+    {
+        for(std::list<AiPackage *>::iterator it = mPackages.begin(); it != mPackages.end();)
+        {
+            if((*it)->canCancel())
+                it = mPackages.erase(it);
+            else
+                ++it;
+        }
+    }
+
+    // insert new package in correct place depending on priority
     for(std::list<AiPackage *>::iterator it = mPackages.begin(); it != mPackages.end(); ++it)
     {
         if((*it)->getPriority() <= package.getPriority())
@@ -340,60 +349,64 @@ void AiSequence::readState(const ESM::AiSequence::AiSequence &sequence)
     for (std::vector<ESM::AiSequence::AiPackageContainer>::const_iterator it = sequence.mPackages.begin();
          it != sequence.mPackages.end(); ++it)
     {
+        MWMechanics::AiPackage* package = NULL;
         switch (it->mType)
         {
         case ESM::AiSequence::Ai_Wander:
         {
-            MWMechanics::AiWander* wander = new AiWander(
-                        static_cast<ESM::AiSequence::AiWander*>(it->mPackage));
-            mPackages.push_back(wander);
+            package = new AiWander(static_cast<ESM::AiSequence::AiWander*>(it->mPackage));
             break;
         }
         case ESM::AiSequence::Ai_Travel:
         {
-            MWMechanics::AiTravel* travel = new AiTravel(
-                        static_cast<ESM::AiSequence::AiTravel*>(it->mPackage));
-            mPackages.push_back(travel);
+            package = new AiTravel(static_cast<ESM::AiSequence::AiTravel*>(it->mPackage));
             break;
         }
         case ESM::AiSequence::Ai_Escort:
         {
-            MWMechanics::AiEscort* escort = new AiEscort(
-                        static_cast<ESM::AiSequence::AiEscort*>(it->mPackage));
-            mPackages.push_back(escort);
+            package = new AiEscort(static_cast<ESM::AiSequence::AiEscort*>(it->mPackage));
             break;
         }
         case ESM::AiSequence::Ai_Follow:
         {
-            MWMechanics::AiFollow* follow = new AiFollow(
-                        static_cast<ESM::AiSequence::AiFollow*>(it->mPackage));
-            mPackages.push_back(follow);
+            package = new AiFollow(static_cast<ESM::AiSequence::AiFollow*>(it->mPackage));
             break;
         }
         case ESM::AiSequence::Ai_Activate:
         {
-            MWMechanics::AiActivate* activate = new AiActivate(
-                        static_cast<ESM::AiSequence::AiActivate*>(it->mPackage));
-            mPackages.push_back(activate);
+            package = new AiActivate(static_cast<ESM::AiSequence::AiActivate*>(it->mPackage));
             break;
         }
         case ESM::AiSequence::Ai_Combat:
         {
-            MWMechanics::AiCombat* combat = new AiCombat(
-                        static_cast<ESM::AiSequence::AiCombat*>(it->mPackage));
-            mPackages.push_back(combat);
+            package = new AiCombat(static_cast<ESM::AiSequence::AiCombat*>(it->mPackage));
             break;
         }
         case ESM::AiSequence::Ai_Pursue:
         {
-            MWMechanics::AiPursue* pursue = new AiPursue(
-                        static_cast<ESM::AiSequence::AiPursue*>(it->mPackage));
-            mPackages.push_back(pursue);
+            package = new AiPursue(static_cast<ESM::AiSequence::AiPursue*>(it->mPackage));
             break;
         }
         default:
             break;
         }
+
+        if (!package)
+            continue;
+
+        // remove previous packages if required
+        if (package->shouldCancelPreviousAi())
+        {
+            for(std::list<AiPackage *>::iterator it = mPackages.begin(); it != mPackages.end();)
+            {
+                if((*it)->canCancel())
+                    it = mPackages.erase(it);
+                else
+                    ++it;
+            }
+        }
+
+        mPackages.push_back(package);
     }
 }
 

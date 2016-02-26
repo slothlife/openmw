@@ -1,12 +1,22 @@
 #ifndef OPENCS_VIEW_WORLDSPACEWIDGET_H
 #define OPENCS_VIEW_WORLDSPACEWIDGET_H
 
+#include <map>
+
 #include <boost/shared_ptr.hpp>
 
-#include "scenewidget.hpp"
+#include <QTimer>
 
-#include <apps/opencs/model/doc/document.hpp>
-#include <apps/opencs/model/world/tablemimedata.hpp>
+#include "../../model/doc/document.hpp"
+#include "../../model/world/tablemimedata.hpp"
+
+#include "scenewidget.hpp"
+#include "mask.hpp"
+
+namespace CSMPrefs
+{
+    class Setting;
+}
 
 namespace CSMWorld
 {
@@ -23,6 +33,9 @@ namespace CSVWidget
 
 namespace CSVRender
 {
+    class TagBase;
+    class CellArrow;
+
     class WorldspaceWidget : public SceneWidget
     {
             Q_OBJECT
@@ -31,6 +44,20 @@ namespace CSVRender
             CSVWidget::SceneToolRun *mRun;
             CSMDoc::Document& mDocument;
             unsigned int mInteractionMask;
+            std::map<std::pair<Qt::MouseButton, bool>, std::string> mButtonMapping;
+            CSVWidget::SceneToolMode *mEditMode;
+            bool mLocked;
+            std::string mDragMode;
+            bool mDragging;
+            int mDragX;
+            int mDragY;
+            double mDragFactor;
+            double mDragWheelFactor;
+            double mDragShiftFactor;
+            QTimer mToolTipDelayTimer;
+            QPoint mToolTipPos;
+            bool mShowToolTips;
+            int mToolTipDelay;
 
         public:
 
@@ -93,13 +120,54 @@ namespace CSVRender
             /// marked for interaction.
             unsigned int getInteractionMask() const;
 
+            virtual void setEditLock (bool locked);
+
+            CSMDoc::Document& getDocument();
+
+            /// \param elementMask Elements to be affected by the clear operation
+            virtual void clearSelection (int elementMask) = 0;
+
+            /// \param elementMask Elements to be affected by the select operation
+            virtual void selectAll (int elementMask) = 0;
+
+            // Select everything that references the same ID as at least one of the elements
+            // already selected
+            //
+            /// \param elementMask Elements to be affected by the select operation
+            virtual void selectAllWithSameParentId (int elementMask) = 0;
+
+            /// Return the next intersection point with scene elements matched by
+            /// \a interactionMask based on \a localPos and the camera vector.
+            /// If there is no such point, instead a point "in front" of \a localPos will be
+            /// returned.
+            ///
+            /// \param ignoreHidden ignore elements specified in interactionMask that are
+            /// flagged as not visible.
+            osg::Vec3f getIntersectionPoint (const QPoint& localPos,
+                unsigned int interactionMask = Mask_Reference | Mask_Terrain,
+                bool ignoreHidden = false) const;
+
+            virtual std::string getCellId (const osg::Vec3f& point) const = 0;
+
+            virtual std::vector<osg::ref_ptr<TagBase> > getSelection (unsigned int elementMask)
+                const = 0;
+
         protected:
+
+            /// Visual elements in a scene
+            /// @note do not change the enumeration values, they are used in pre-existing button file names!
+            enum ButtonId
+            {
+                Button_Reference = 0x1,
+                Button_Pathgrid = 0x2,
+                Button_Water = 0x4,
+                Button_Fog = 0x8,
+                Button_Terrain = 0x10
+            };
 
             virtual void addVisibilitySelectorButtons (CSVWidget::SceneToolToggle2 *tool);
 
             virtual void addEditModeSelectorButtons (CSVWidget::SceneToolMode *tool);
-
-            CSMDoc::Document& getDocument();
 
             virtual void updateOverlay();
 
@@ -110,6 +178,9 @@ namespace CSVRender
             virtual void wheelEvent (QWheelEvent *event);
             virtual void keyPressEvent (QKeyEvent *event);
 
+            virtual void handleMouseClick (osg::ref_ptr<TagBase> tag, const std::string& button,
+                bool shift);
+
         private:
 
             void dragEnterEvent(QDragEnterEvent *event);
@@ -118,9 +189,18 @@ namespace CSVRender
 
             void dragMoveEvent(QDragMoveEvent *event);
 
+            /// \return Is \a key a button mapping setting? (ignored otherwise)
+            bool storeMappingSetting (const CSMPrefs::Setting *setting);
+
+            osg::ref_ptr<TagBase> mousePick (const QPoint& localPos);
+
+            std::string mapButton (QMouseEvent *event);
+
             virtual std::string getStartupInstruction() = 0;
 
         private slots:
+
+            void settingChanged (const CSMPrefs::Setting *setting);
 
             void selectNavigationMode (const std::string& mode);
 
@@ -144,6 +224,9 @@ namespace CSVRender
 
             void debugProfileAboutToBeRemoved (const QModelIndex& parent, int start, int end);
 
+            void editModeChanged (const std::string& id);
+
+            void showToolTip();
 
         protected slots:
 

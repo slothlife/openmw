@@ -29,6 +29,7 @@ class CreatureStats;
 enum Priority {
     Priority_Default,
     Priority_WeaponLowerBody,
+    Priority_SneakIdleLowerBody,
     Priority_SwimIdle,
     Priority_Jump,
     Priority_Movement,
@@ -159,6 +160,7 @@ class CharacterController : public MWRender::Animation::TextKeyListener
 
     CharacterState mDeathState;
     std::string mCurrentDeath;
+    bool mFloatToSurface;
 
     CharacterState mHitState;
     std::string mCurrentHit;
@@ -179,7 +181,7 @@ class CharacterController : public MWRender::Animation::TextKeyListener
     float mSecondsOfSwimming;
     float mSecondsOfRunning;
 
-    MWWorld::Ptr mHeadTrackTarget;
+    MWWorld::ConstPtr mHeadTrackTarget;
 
     float mTurnAnimationThreshold; // how long to continue playing turning animation after actor stopped turning
 
@@ -195,7 +197,7 @@ class CharacterController : public MWRender::Animation::TextKeyListener
 
     bool updateWeaponState();
     bool updateCreatureState();
-    void updateIdleStormState();
+    void updateIdleStormState(bool inwater);
 
     void updateHeadTracking(float duration);
 
@@ -241,6 +243,7 @@ public:
     
     bool isReadyToBlock() const;
     bool isKnockedOut() const;
+    bool isSneaking() const;
 
     void setAttackingOrSpell(bool attackingOrSpell);
 
@@ -253,7 +256,7 @@ public:
     void setActive(bool active);
 
     /// Make this character turn its head towards \a target. To turn off head tracking, pass an empty Ptr.
-    void setHeadTrackTarget(const MWWorld::Ptr& target);
+    void setHeadTrackTarget(const MWWorld::ConstPtr& target);
 };
 
     MWWorld::ContainerStoreIterator getActiveWeapon(CreatureStats &stats, MWWorld::InventoryStore &inv, WeaponType *weaptype);

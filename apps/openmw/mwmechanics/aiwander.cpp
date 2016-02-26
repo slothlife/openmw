@@ -255,7 +255,7 @@ namespace MWMechanics
             // Construct a new path if there isn't one
             if(!storage.mPathFinder.isPathConstructed())
             {
-                if (mAllowedNodes.size())
+                if (!mAllowedNodes.empty())
                 {
                     setPathToAnAllowedNode(actor, storage, pos);
                 }
@@ -588,7 +588,7 @@ namespace MWMechanics
 
     void AiWander::ToWorldCoordinates(ESM::Pathgrid::Point& point, const ESM::Cell * cell)
     {
-        CoordinateConverter(cell).ToWorld(point);
+        CoordinateConverter(cell).toWorld(point);
     }
 
     void AiWander::trimAllowedNodes(std::vector<ESM::Pathgrid::Point>& nodes,
@@ -730,6 +730,8 @@ namespace MWMechanics
         const ESM::Pathgrid *
             pathgrid = MWBase::Environment::get().getWorld()->getStore().get<ESM::Pathgrid>().search(*cell);
 
+        mAllowedNodes.clear();
+
         // If there is no path this actor doesn't go anywhere. See:
         // https://forum.openmw.org/viewtopic.php?t=1556
         // http://www.fliggerty.com/phpBB3/viewtopic.php?f=30&t=5833
@@ -746,7 +748,7 @@ namespace MWMechanics
         {
             // get NPC's position in local (i.e. cell) co-ordinates
             osg::Vec3f npcPos(mInitialActorPosition);
-            CoordinateConverter(cell).ToLocal(npcPos);
+            CoordinateConverter(cell).toLocal(npcPos);
 
             // mAllowedNodes for this actor with pathgrid point indexes based on mDistance
             // NOTE: mPoints and mAllowedNodes are in local co-ordinates

@@ -45,6 +45,8 @@ namespace CSVRender
 
         void setVisibilityMask(int mask);
 
+        bool eventFilter(QObject *, QEvent *);
+
     protected:
 
         osg::ref_ptr<osgViewer::View> mView;
@@ -88,6 +90,10 @@ namespace CSVRender
     private slots:
 
         void selectLightingMode (const std::string& mode);
+
+        signals:
+
+             void focusToolbarRequest();
     };
 
 

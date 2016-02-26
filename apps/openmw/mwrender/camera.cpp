@@ -1,7 +1,8 @@
 #include "camera.hpp"
 
-#include <osg/PositionAttitudeTransform>
 #include <osg/Camera>
+
+#include <components/sceneutil/positionattitudetransform.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -14,10 +15,10 @@
 namespace
 {
 
-class UpdateCameraCallback : public osg::NodeCallback
+class UpdateRenderCameraCallback : public osg::NodeCallback
 {
 public:
-    UpdateCameraCallback(MWRender::Camera* cam)
+    UpdateRenderCameraCallback(MWRender::Camera* cam)
         : mCamera(cam)
     {
     }
@@ -42,7 +43,8 @@ namespace MWRender
 {
 
     Camera::Camera (osg::Camera* camera)
-    : mCamera(camera),
+    : mHeightScale(1.f),
+      mCamera(camera),
       mAnimation(NULL),
       mFirstPersonView(true),
       mPreviewMode(false),
@@ -67,7 +69,7 @@ namespace MWRender
         mMainCam.yaw = 0.f;
         mMainCam.offset = 400.f;
 
-        mUpdateCallback = new UpdateCameraCallback(this);
+        mUpdateCallback = new UpdateRenderCameraCallback(this);
         mCamera->addUpdateCallback(mUpdateCallback);
     }
 
@@ -86,14 +88,14 @@ namespace MWRender
         const osg::Node* trackNode = mTrackingNode;
         if (!trackNode)
             return osg::Vec3d();
-        osg::MatrixList mats = trackNode->getWorldMatrices();
-        if (!mats.size())
+        osg::NodePathList nodepaths = trackNode->getParentalNodePaths();
+        if (nodepaths.empty())
             return osg::Vec3d();
-        const osg::Matrix& worldMat = mats[0];
+        osg::Matrix worldMat = osg::computeLocalToWorld(nodepaths[0]);
 
         osg::Vec3d position = worldMat.getTrans();
         if (!isFirstPerson())
-            position.z() += mHeight;
+            position.z() += mHeight * mHeightScale;
         return position;
     }
 
@@ -372,11 +374,17 @@ namespace MWRender
             mTrackingNode = mAnimation->getNode("Camera");
             if (!mTrackingNode)
                 mTrackingNode = mAnimation->getNode("Head");
+            mHeightScale = 1.f;
         }
         else
         {
             mAnimation->setViewMode(NpcAnimation::VM_Normal);
-            mTrackingNode = mTrackingPtr.getRefData().getBaseNode();
+            SceneUtil::PositionAttitudeTransform* transform = mTrackingPtr.getRefData().getBaseNode();
+            mTrackingNode = transform;
+            if (transform)
+                mHeightScale = transform->getScale().z();
+            else
+                mHeightScale = 1.f;
         }
         rotateCamera(getPitch(), getYaw(), false);
     }

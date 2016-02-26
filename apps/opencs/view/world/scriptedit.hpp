@@ -22,6 +22,7 @@ namespace CSVWorld
 {
     class LineNumberArea;
 
+    /// \brief Editor for scripts.
     class ScriptEdit : public QPlainTextEdit
     {
             Q_OBJECT
@@ -77,6 +78,7 @@ namespace CSVWorld
             virtual void resizeEvent(QResizeEvent *e);
 
         private:
+
             QVector<CSMWorld::UniversalId::Type> mAllowedTypes;
             const CSMDoc::Document& mDocument;
             const QRegExp mWhiteListQoutes;
@@ -89,7 +91,15 @@ namespace CSVWorld
 
             bool stringNeedsQuote(const std::string& id) const;
 
+            /// \brief Turn line wrapping in script editor on or off.
+            /// \param wrap Whether or not to wrap lines.
+            void wrapLines(bool wrap);
+
         private slots:
+
+            /// \brief Update editor when related setting is changed.
+            /// \param setting Setting that was changed.
+            void settingChanged(const CSMPrefs::Setting *setting);
 
             void idListChanged();
 
@@ -98,10 +108,6 @@ namespace CSVWorld
             void updateLineNumberAreaWidth(int newBlockCount);
 
             void updateLineNumberArea(const QRect &, int);
-
-        public slots:
-
-            void updateUserSetting (const QString &name, const QStringList &list);
     };
 
     class LineNumberArea : public QWidget

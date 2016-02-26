@@ -10,14 +10,18 @@
 #include <osg/Shape>
 #include <osg/Geode>
 
+#include <osgFX/Scribe>
+
 #include "../../model/world/data.hpp"
 #include "../../model/world/ref.hpp"
 #include "../../model/world/refidcollection.hpp"
 
 #include <components/resource/scenemanager.hpp>
-#include <components/sceneutil/clone.hpp>
+#include <components/sceneutil/lightutil.hpp>
+#include <components/sceneutil/lightmanager.hpp>
+#include <components/fallback/fallback.hpp>
 
-#include "elements.hpp"
+#include "mask.hpp"
 
 namespace
 {
@@ -36,6 +40,16 @@ namespace
 }
 
 
+CSVRender::ObjectTag::ObjectTag (Object* object)
+: TagBase (Mask_Reference), mObject (object)
+{}
+
+QString CSVRender::ObjectTag::getToolTip (bool hideBasics) const
+{
+    return QString::fromUtf8 (mObject->getReferenceableId().c_str());
+}
+
+
 void CSVRender::Object::clear()
 {
 }
@@ -50,6 +64,7 @@ void CSVRender::Object::update()
     const CSMWorld::RefIdCollection& referenceables = mData.getReferenceables();
 
     int index = referenceables.searchId (mReferenceableId);
+    const ESM::Light* light = NULL;
 
     if (index==-1)
         error = 1;
@@ -60,6 +75,14 @@ void CSVRender::Object::update()
         model = referenceables.getData (index,
             referenceables.findColumnIndex (CSMWorld::Columns::ColumnId_Model)).
             toString().toUtf8().constData();
+
+        int recordType =
+                referenceables.getData (index,
+                referenceables.findColumnIndex(CSMWorld::Columns::ColumnId_RecordType)).toInt();
+        if (recordType == CSMWorld::UniversalId::Type_Light)
+        {
+            light = &dynamic_cast<const CSMWorld::Record<ESM::Light>& >(referenceables.getRecord(index)).get();
+        }
 
         if (model.empty())
             error = 2;
@@ -77,13 +100,28 @@ void CSVRender::Object::update()
         {
             std::string path = "meshes\\" + model;
 
-            mResourceSystem->getSceneManager()->createInstance(path, mBaseNode);
+            mResourceSystem->getSceneManager()->getInstance(path, mBaseNode);
         }
         catch (std::exception& e)
         {
             // TODO: use error marker mesh
             std::cerr << e.what() << std::endl;
         }
+    }
+
+    if (light)
+    {
+        const Fallback::Map* fallback = mData.getFallbackMap();
+        static bool outQuadInLin = fallback->getFallbackBool("LightAttenuation_OutQuadInLin");
+        static bool useQuadratic = fallback->getFallbackBool("LightAttenuation_UseQuadratic");
+        static float quadraticValue = fallback->getFallbackFloat("LightAttenuation_QuadraticValue");
+        static float quadraticRadiusMult = fallback->getFallbackFloat("LightAttenuation_QuadraticRadiusMult");
+        static bool useLinear = fallback->getFallbackBool("LightAttenuation_UseLinear");
+        static float linearRadiusMult = fallback->getFallbackFloat("LightAttenuation_LinearRadiusMult");
+        static float linearValue = fallback->getFallbackFloat("LightAttenuation_LinearValue");
+        bool isExterior = false; // FIXME
+        SceneUtil::addLight(mBaseNode, light, Mask_ParticleSystem, Mask_Lighting, isExterior, outQuadInLin, useQuadratic,
+                            quadraticValue, quadraticRadiusMult, useLinear, linearRadiusMult, linearValue);
     }
 }
 
@@ -116,13 +154,18 @@ const CSMWorld::CellRef& CSVRender::Object::getReference() const
 
 CSVRender::Object::Object (CSMWorld::Data& data, osg::Group* parentNode,
     const std::string& id, bool referenceable, bool forceBaseToZero)
-: mData (data), mBaseNode(0), mParentNode(parentNode), mResourceSystem(data.getResourceSystem().get()), mForceBaseToZero (forceBaseToZero)
+: mData (data), mBaseNode(0), mSelected(false), mParentNode(parentNode), mResourceSystem(data.getResourceSystem().get()), mForceBaseToZero (forceBaseToZero)
 {
     mBaseNode = new osg::PositionAttitudeTransform;
+    mBaseNode->addCullCallback(new SceneUtil::LightListCallback);
+
+    mOutline = new osgFX::Scribe;
+
+    mBaseNode->setUserData(new ObjectTag(this));
+
     parentNode->addChild(mBaseNode);
 
-    // 0x1 reserved for separating cull and update visitors
-    mBaseNode->setNodeMask(Element_Reference<<1);
+    mBaseNode->setNodeMask(Mask_Reference);
 
     if (referenceable)
     {
@@ -143,6 +186,28 @@ CSVRender::Object::~Object()
     clear();
 
     mParentNode->removeChild(mBaseNode);
+    mParentNode->removeChild(mOutline);
+}
+
+void CSVRender::Object::setSelected(bool selected)
+{
+    mSelected = selected;
+
+    mOutline->removeChild(mBaseNode);
+    mParentNode->removeChild(mOutline);
+    mParentNode->removeChild(mBaseNode);
+    if (selected)
+    {
+        mOutline->addChild(mBaseNode);
+        mParentNode->addChild(mOutline);
+    }
+    else
+        mParentNode->addChild(mBaseNode);
+}
+
+bool CSVRender::Object::getSelected() const
+{
+    return mSelected;
 }
 
 bool CSVRender::Object::referenceableDataChanged (const QModelIndex& topLeft,
@@ -222,4 +287,9 @@ std::string CSVRender::Object::getReferenceId() const
 std::string CSVRender::Object::getReferenceableId() const
 {
     return mReferenceableId;
+}
+
+osg::ref_ptr<CSVRender::TagBase> CSVRender::Object::getTag() const
+{
+    return static_cast<CSVRender::TagBase *> (mBaseNode->getUserData());
 }

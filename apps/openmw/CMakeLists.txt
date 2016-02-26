@@ -23,6 +23,7 @@ add_openmw_dir (mwrender
     actors objects renderingmanager animation rotatecontroller sky npcanimation vismask
     creatureanimation effectmanager util renderinginterface pathgrid rendermode weaponanimation
     bulletdebugdraw globalmap characterpreview camera localmap water terrainstorage ripplesimulation
+    renderbin
     )
 
 add_openmw_dir (mwinput
@@ -56,16 +57,17 @@ add_openmw_dir (mwscript
     )
 
 add_openmw_dir (mwsound
-    soundmanagerimp openal_output ffmpeg_decoder sound sound_decoder sound_output loudness libavwrapper movieaudiofactory
+    soundmanagerimp openal_output ffmpeg_decoder sound sound_buffer sound_decoder sound_output loudness movieaudiofactory
     )
 
 add_openmw_dir (mwworld
     refdata worldimp scene globals class action nullaction actionteleport
-    containerstore actiontalk actiontake manualref player cellfunctors failedaction
+    containerstore actiontalk actiontake manualref player cellvisitors failedaction
     cells localscripts customdata inventorystore ptr actionopen actionread
     actionequip timestamp actionalchemy cellstore actionapply actioneat
-    esmstore store recordcmp fallback actionrepair actionsoulgem livecellref actiondoor
+    store esmstore recordcmp fallback actionrepair actionsoulgem livecellref actiondoor
     contentloader esmloader actiontrap cellreflist cellref physicssystem weather projectilemanager
+    cellpreloader
     )
 
 add_openmw_dir (mwphysics
@@ -74,7 +76,7 @@ add_openmw_dir (mwphysics
 
 add_openmw_dir (mwclass
     classes activator creature npc weapon armor potion apparatus book clothing container door
-    ingredient creaturelevlist itemlevlist light lockpick misc probe repair static actor
+    ingredient creaturelevlist itemlevlist light lockpick misc probe repair static actor bodypart
     )
 
 add_openmw_dir (mwmechanics
@@ -112,16 +114,24 @@ endif ()
 
 # Sound stuff - here so CMake doesn't stupidly recompile EVERYTHING
 # when we change the backend.
-include_directories(${SOUND_INPUT_INCLUDES})
+include_directories(
+    ${FFMPEG_INCLUDE_DIRS}
+)
 
 target_link_libraries(openmw
-    ${OPENSCENEGRAPH_LIBRARIES}
+    ${OSG_LIBRARIES}
+    ${OPENTHREADS_LIBRARIES}
+    ${OSGPARTICLE_LIBRARIES}
+    ${OSGUTIL_LIBRARIES}
+    ${OSGDB_LIBRARIES}
+    ${OSGVIEWER_LIBRARIES}
+    ${OSGGA_LIBRARIES}
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
     ${Boost_PROGRAM_OPTIONS_LIBRARY}
     ${OPENAL_LIBRARY}
-    ${SOUND_INPUT_LIBRARY}
+    ${FFMPEG_LIBRARIES}
     ${BULLET_LIBRARIES}
     ${MYGUI_LIBRARIES}
     ${SDL2_LIBRARY}
@@ -131,15 +141,27 @@ target_link_libraries(openmw
 )
 
 if (ANDROID)
+    set (OSG_PLUGINS
+        -Wl,--whole-archive
+        ${OSG_PLUGINS_DIR}/libosgdb_dds.a
+        ${OSG_PLUGINS_DIR}/libosgdb_bmp.a
+        ${OSG_PLUGINS_DIR}/libosgdb_tga.a
+        ${OSG_PLUGINS_DIR}/libosgdb_gif.a
+        ${OSG_PLUGINS_DIR}/libosgdb_jpeg.a
+        ${OSG_PLUGINS_DIR}/libosgdb_png.a
+        -Wl,--no-whole-archive
+    )
     target_link_libraries(openmw
         EGL
         android
         log
         dl
-        MyGUIEngineStatic
-        cpufeatures
-        BulletCollision
-        LinearMath
+        z
+        ${OPENSCENEGRAPH_LIBRARIES}
+        ${OSG_PLUGINS}
+        jpeg
+        gif
+    	png
     )
 endif (ANDROID)
 
@@ -178,4 +200,5 @@ if (MSVC)
     if (CMAKE_CL_64)
         set (CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /bigobj")
     endif (CMAKE_CL_64)
+    add_definitions("-D_USE_MATH_DEFINES")
 endif (MSVC)

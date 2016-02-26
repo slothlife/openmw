@@ -207,13 +207,24 @@ namespace MWMechanics
         //       outside an area enclosed by walls, but there is a pathgrid
         //       point right behind the wall that is closer than any pathgrid
         //       point outside the wall
-        osg::Vec3f startPointInLocalCoords(converter.ToLocalVec3(startPoint));
+        osg::Vec3f startPointInLocalCoords(converter.toLocalVec3(startPoint));
         int startNode = getClosestPoint(mPathgrid, startPointInLocalCoords);
 
-        osg::Vec3f endPointInLocalCoords(converter.ToLocalVec3(endPoint));
+        osg::Vec3f endPointInLocalCoords(converter.toLocalVec3(endPoint));
         std::pair<int, bool> endNode = getClosestReachablePoint(mPathgrid, cell,
             endPointInLocalCoords,
                 startNode);
+
+        // if it's shorter for actor to travel from start to end, than to travel from either
+        // start or end to nearest pathgrid point, just travel from start to end.
+        float startToEndLength2 = (endPointInLocalCoords - startPointInLocalCoords).length2();
+        float endTolastNodeLength2 = distanceSquared(mPathgrid->mPoints[endNode.first], endPointInLocalCoords);
+        float startTo1stNodeLength2 = distanceSquared(mPathgrid->mPoints[startNode], startPointInLocalCoords);
+        if ((startToEndLength2 < startTo1stNodeLength2) || (startToEndLength2 < endTolastNodeLength2))
+        {
+            mPath.push_back(endPoint);
+            return;
+        }
 
         // AiWander has logic that depends on whether a path was created,
         // deleting allowed nodes if not.  Hence a path needs to be created
@@ -223,7 +234,7 @@ namespace MWMechanics
         if(startNode == endNode.first)
         {
             ESM::Pathgrid::Point temp(mPathgrid->mPoints[startNode]);
-            converter.ToWorld(temp);
+            converter.toWorld(temp);
             mPath.push_back(temp);
         }
         else
@@ -233,7 +244,7 @@ namespace MWMechanics
             // convert supplied path to world co-ordinates
             for (std::list<ESM::Pathgrid::Point>::iterator iter(mPath.begin()); iter != mPath.end(); ++iter)
             {
-                converter.ToWorld(*iter);
+                converter.toWorld(*iter);
             }
         }
 

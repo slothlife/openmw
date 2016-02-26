@@ -411,7 +411,12 @@ namespace Compiler
                 }
 
                 case Scanner::K_set: mState = SetState; return true;
-                case Scanner::K_messagebox: mState = MessageState; return true;
+
+                case Scanner::K_messagebox:
+
+                    mState = MessageState;
+                    scanner.enableStrictKeywords();
+                    return true;
 
                 case Scanner::K_return:
 
@@ -555,7 +560,7 @@ namespace Compiler
         }
 
         if (mAllowExpression && mState==BeginState &&
-            (code==Scanner::S_open || code==Scanner::S_minus))
+            (code==Scanner::S_open || code==Scanner::S_minus || code==Scanner::S_plus))
         {
             scanner.putbackSpecial (code, loc);
             parseExpression (scanner, loc);

@@ -24,6 +24,7 @@ namespace NifOsg
 namespace SceneUtil
 {
     class LightSource;
+    class Skeleton;
 }
 
 namespace MWRender
@@ -54,6 +55,9 @@ public:
 
     ~PartHolder();
 
+    /// Unreferences mNode *without* detaching it from the graph. Only use if you know what you are doing.
+    void unlink();
+
     osg::ref_ptr<osg::Node> getNode()
     {
         return mNode;
@@ -61,6 +65,9 @@ public:
 
 private:
     osg::ref_ptr<osg::Node> mNode;
+
+    void operator= (const PartHolder&);
+    PartHolder(const PartHolder&);
 };
 typedef boost::shared_ptr<PartHolder> PartHolderPtr;
 
@@ -103,6 +110,16 @@ public:
                 if (other.mPriority[i] != mPriority[i])
                     return false;
             return true;
+        }
+
+        int& operator[] (BoneGroup n)
+        {
+            return mPriority[n];
+        }
+
+        const int& operator[] (BoneGroup n) const
+        {
+            return mPriority[n];
         }
 
         bool contains(int priority) const
@@ -194,7 +211,8 @@ protected:
 
     osg::ref_ptr<osg::Group> mInsert;
 
-    osg::ref_ptr<osg::Node> mObjectRoot;
+    osg::ref_ptr<osg::Group> mObjectRoot;
+    SceneUtil::Skeleton* mSkeleton;
 
     // The node expected to accumulate movement during movement animations.
     osg::ref_ptr<osg::Node> mAccumRoot;
@@ -214,7 +232,8 @@ protected:
 
     // Stored in all lowercase for a case-insensitive lookup
     typedef std::map<std::string, osg::ref_ptr<osg::MatrixTransform> > NodeMap;
-    NodeMap mNodeMap;
+    mutable NodeMap mNodeMap;
+    mutable bool mNodeMapCreated;
 
     MWWorld::Ptr mPtr;
 
@@ -242,6 +261,10 @@ protected:
     float mHeadPitchRadians;
 
     osg::ref_ptr<SceneUtil::LightSource> mGlowLight;
+
+    float mAlpha;
+
+    const NodeMap& getNodeMap() const;
 
     /* Sets the appropriate animations on the bone groups based on priority.
      */
@@ -275,9 +298,10 @@ protected:
      */
     void setObjectRoot(const std::string &model, bool forceskeleton, bool baseonly, bool isCreature);
 
-    /* Adds the keyframe controllers in the specified model as a new animation source. Note that
-     * the filename portion of the provided model name will be prepended with 'x', and the .nif
-     * extension will be replaced with .kf. */
+    /** Adds the keyframe controllers in the specified model as a new animation source. Note that the .nif
+     * file extension will be replaced with .kf.
+     * @note Later added animation sources have the highest priority when it comes to finding a particular animation.
+    */
     void addAnimSource(const std::string &model);
 
     /** Adds an additional light to the given node using the specified ESM record. */
@@ -294,6 +318,9 @@ protected:
     osg::Vec4f getEnchantmentColor(MWWorld::Ptr item);
 
     void addGlow(osg::ref_ptr<osg::Node> node, osg::Vec4f glowColor);
+
+    /// Set the render bin for this animation's object root. May be customized by subclasses.
+    virtual void setRenderBin();
 
 public:
 
@@ -409,7 +436,8 @@ public:
     virtual void showCarriedLeft(bool show) {}
     virtual void setWeaponGroup(const std::string& group) {}
     virtual void setVampire(bool vampire) {}
-    virtual void setAlpha(float alpha) {}
+    /// A value < 1 makes the animation translucent, 1.f = fully opaque
+    void setAlpha(float alpha);
     virtual void setPitchFactor(float factor) {}
     virtual void attachArrow() {}
     virtual void releaseArrow(float attackStrength) {}
@@ -423,6 +451,7 @@ public:
     virtual void setHeadYaw(float yawRadians);
     virtual float getHeadPitch() const;
     virtual float getHeadYaw() const;
+    virtual void setAccurateAiming(bool enabled) {}
 
 private:
     Animation(const Animation&);

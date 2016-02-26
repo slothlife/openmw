@@ -15,6 +15,7 @@
 
 #include "../render/pagedworldspacewidget.hpp"
 #include "../render/unpagedworldspacewidget.hpp"
+#include "../render/editmode.hpp"
 
 #include "../widget/scenetoolbar.hpp"
 #include "../widget/scenetoolmode.hpp"
@@ -121,20 +122,14 @@ CSVWidget::SceneToolbar* CSVWorld::SceneSubView::makeToolbar (CSVRender::Worldsp
     CSVWidget::SceneToolRun *runTool = widget->makeRunTool (toolbar);
     toolbar->addTool (runTool);
 
-    CSVWidget::SceneToolMode *editModeTool = widget->makeEditModeSelector (toolbar);
-    toolbar->addTool (editModeTool);
+    toolbar->addTool (widget->makeEditModeSelector (toolbar), runTool);
 
     return toolbar;
 }
 
 void CSVWorld::SceneSubView::setEditLock (bool locked)
 {
-
-}
-
-void CSVWorld::SceneSubView::updateEditorSetting(const QString &settingName, const QString &settingValue)
-{
-
+    mScene->setEditLock (locked);
 }
 
 void CSVWorld::SceneSubView::setStatusBar (bool show)
@@ -247,8 +242,6 @@ void CSVWorld::SceneSubView::replaceToolbarAndWorldspace (CSVRender::WorldspaceW
     mToolbar = toolbar;
 
     connect (mScene, SIGNAL (focusToolbarRequest()), mToolbar, SLOT (setFocus()));
-    connect (this, SIGNAL (updateSceneUserSetting(const QString &, const QStringList &)),
-            mScene, SLOT (updateUserSetting(const QString &, const QStringList &)));
     connect (mToolbar, SIGNAL (focusSceneRequest()), mScene, SLOT (setFocus()));
 
     mLayout->addWidget (mToolbar, 0);
@@ -256,9 +249,4 @@ void CSVWorld::SceneSubView::replaceToolbarAndWorldspace (CSVRender::WorldspaceW
 
     mScene->selectDefaultNavigationMode();
     setFocusProxy (mScene);
-}
-
-void CSVWorld::SceneSubView::updateUserSetting (const QString &key, const QStringList &list)
-{
-    emit updateSceneUserSetting(key, list);
 }

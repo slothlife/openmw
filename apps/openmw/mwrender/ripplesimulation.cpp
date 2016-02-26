@@ -2,6 +2,7 @@
 
 #include <iomanip>
 
+#include <osg/PolygonOffset>
 #include <osg/Geode>
 #include <osg/Texture2D>
 #include <osg/Material>
@@ -12,21 +13,21 @@
 
 #include <components/misc/rng.hpp>
 #include <components/nifosg/controller.hpp>
-#include <components/resource/texturemanager.hpp>
+#include <components/resource/imagemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/resource/scenemanager.hpp>
+#include <components/fallback/fallback.hpp>
 
 #include "vismask.hpp"
 
 #include "../mwbase/world.hpp"
 #include "../mwbase/environment.hpp"
 
-#include "../mwworld/fallback.hpp"
-
 #include "../mwmechanics/actorutil.hpp"
 
 namespace
 {
-    void createWaterRippleStateSet(Resource::ResourceSystem* resourceSystem, const MWWorld::Fallback* fallback, osg::Node* node)
+    void createWaterRippleStateSet(Resource::ResourceSystem* resourceSystem, const Fallback::Map* fallback, osg::Node* node)
     {
         int rippleFrameCount = fallback->getFallbackInt("Water_RippleFrameCount");
         if (rippleFrameCount <= 0)
@@ -39,7 +40,11 @@ namespace
         {
             std::ostringstream texname;
             texname << "textures/water/" << tex << std::setw(2) << std::setfill('0') << i << ".dds";
-            textures.push_back(resourceSystem->getTextureManager()->getTexture2D(texname.str(), osg::Texture::REPEAT, osg::Texture::REPEAT));
+            osg::ref_ptr<osg::Texture2D> tex (new osg::Texture2D(resourceSystem->getImageManager()->getImage(texname.str())));
+            tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+            tex->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+            resourceSystem->getSceneManager()->applyFilterSettings(tex);
+            textures.push_back(tex);
         }
 
         osg::ref_ptr<NifOsg::FlipController> controller (new NifOsg::FlipController(0, 0.3f/rippleFrameCount, textures));
@@ -54,6 +59,11 @@ namespace
         osg::ref_ptr<osg::Depth> depth (new osg::Depth);
         depth->setWriteMask(false);
         stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+
+        osg::ref_ptr<osg::PolygonOffset> polygonOffset (new osg::PolygonOffset);
+        polygonOffset->setUnits(-1);
+        polygonOffset->setFactor(-1);
+        stateset->setAttributeAndModes(polygonOffset, osg::StateAttribute::ON);
 
         stateset->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
@@ -72,7 +82,7 @@ namespace
 namespace MWRender
 {
 
-RippleSimulation::RippleSimulation(osg::Group *parent, Resource::ResourceSystem* resourceSystem, const MWWorld::Fallback* fallback)
+RippleSimulation::RippleSimulation(osg::Group *parent, Resource::ResourceSystem* resourceSystem, const Fallback::Map* fallback)
     : mParent(parent)
 {
     osg::ref_ptr<osg::Geode> geode (new osg::Geode);
@@ -121,7 +131,6 @@ void RippleSimulation::update(float dt)
         }
 
         osg::Vec3f currentPos (it->mPtr.getRefData().getPosition().asVec3());
-        currentPos.z() = 0; // Z is set by the Scene Node
 
         if ( (currentPos - it->mLastEmitPosition).length() > 10
              // Only emit when close to the water surface, not above it and not too deep in the water
@@ -130,18 +139,18 @@ void RippleSimulation::update(float dt)
         {
             it->mLastEmitPosition = currentPos;
 
+            currentPos.z() = mParticleNode->getPosition().z();
+
             if (mParticleSystem->numParticles()-mParticleSystem->numDeadParticles() > 500)
                 continue; // TODO: remove the oldest particle to make room?
 
-            osgParticle::Particle* p = mParticleSystem->createParticle(NULL);
-            p->setPosition(currentPos);
-            p->setAngle(osg::Vec3f(0,0, Misc::Rng::rollProbability() * osg::PI * 2 - osg::PI));
+            emitRipple(currentPos);
         }
     }
 }
 
 
-void RippleSimulation::addEmitter(const MWWorld::Ptr& ptr, float scale, float force)
+void RippleSimulation::addEmitter(const MWWorld::ConstPtr& ptr, float scale, float force)
 {
     Emitter newEmitter;
     newEmitter.mPtr = ptr;
@@ -151,7 +160,7 @@ void RippleSimulation::addEmitter(const MWWorld::Ptr& ptr, float scale, float fo
     mEmitters.push_back (newEmitter);
 }
 
-void RippleSimulation::removeEmitter (const MWWorld::Ptr& ptr)
+void RippleSimulation::removeEmitter (const MWWorld::ConstPtr& ptr)
 {
     for (std::vector<Emitter>::iterator it = mEmitters.begin(); it != mEmitters.end(); ++it)
     {
@@ -163,7 +172,7 @@ void RippleSimulation::removeEmitter (const MWWorld::Ptr& ptr)
     }
 }
 
-void RippleSimulation::updateEmitterPtr (const MWWorld::Ptr& old, const MWWorld::Ptr& ptr)
+void RippleSimulation::updateEmitterPtr (const MWWorld::ConstPtr& old, const MWWorld::ConstPtr& ptr)
 {
     for (std::vector<Emitter>::iterator it = mEmitters.begin(); it != mEmitters.end(); ++it)
     {
@@ -179,12 +188,22 @@ void RippleSimulation::removeCell(const MWWorld::CellStore *store)
 {
     for (std::vector<Emitter>::iterator it = mEmitters.begin(); it != mEmitters.end();)
     {
-        if (it->mPtr.getCell() == store && it->mPtr != MWMechanics::getPlayer())
+        if ((it->mPtr.isInCell() && it->mPtr.getCell() == store) && it->mPtr != MWMechanics::getPlayer())
         {
             it = mEmitters.erase(it);
         }
         else
             ++it;
+    }
+}
+
+void RippleSimulation::emitRipple(const osg::Vec3f &pos)
+{
+    if (std::abs(pos.z() - mParticleNode->getPosition().z()) < 20)
+    {
+        osgParticle::Particle* p = mParticleSystem->createParticle(NULL);
+        p->setPosition(osg::Vec3f(pos.x(), pos.y(), 0.f));
+        p->setAngle(osg::Vec3f(0,0, Misc::Rng::rollProbability() * osg::PI * 2 - osg::PI));
     }
 }
 

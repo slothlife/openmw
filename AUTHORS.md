@@ -13,12 +13,14 @@ Programmers
     Marc Zinnschlag (Zini) - Lead Programmer/Project Manager
 
     Adam Hogan (aurix)
+    Aesylwinn
     Aleksandar Jovanov
     Alex Haddad (rainChu)
     Alex McKibben (WeirdSexy)
     Alexander Nadeau (wareya)
     Alexander Olofsson (Ace)
     Artem Kotsynyak (greye)
+    artemutin
     Arthur Moore (EmperorArthur)
     athile
     Bret Curtis (psi29a)
@@ -46,6 +48,7 @@ Programmers
     Gašper Sedej
     gugus/gus
     Hallfaer Tuilinn
+    hristoast
     Internecine
     Jacob Essex (Yacoby)
     Jannik Heller (scrawl)
@@ -54,6 +57,7 @@ Programmers
     Jeffrey Haines (Jyby)
     Jengerer
     Jiří Kuneš (kunesj)
+    Joe Wilkerson (neuralroberts)
     Joel Graff (graffy)
     John Blomberg (fstp)
     Jordan Ayers
@@ -73,6 +77,7 @@ Programmers
     Marco Melletti (mellotanica)
     Marco Schulze
     Mateusz Kołaczek (PL_kolek)
+    Mateusz Malisz (malice)
     megaton
     Michael Hogan (Xethik)
     Michael Mc Donnell
@@ -87,10 +92,12 @@ Programmers
     Nikolay Kasyanov (corristo)
     nobrakal
     Nolan Poe (nopoe)
+    Paul Cercueil (pcercuei)
     Paul McElroy (Greendogo)
     Pieter van der Kloet (pvdk)
     pkubik
     Radu-Marius Popovici (rpopovici)
+    rcutmore
     rdimesio
     riothamus
     Robert MacGregor (Ragora)
@@ -106,6 +113,7 @@ Programmers
     Stefan Galowicz (bogglez)
     Stanislav Bobrov (Jiub)
     Sylvain Thesnieres (Garvek)
+    t6
     terrorfisch
     Thomas Luppi (Digmaster)
     Tom Mason (wheybags)
@@ -113,12 +121,14 @@ Programmers
     viadanna
     Vincent Heuken
     vocollapse
+    zelurker
 
 Manual
 ------
 
     Bodillium
     Cramal
+    Alejandro Sanchez (HiPhish)
     sir_herrbatka
 
 Packagers

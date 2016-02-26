@@ -39,6 +39,8 @@ namespace MWMechanics
                 TypeIdEscort = 2,
                 TypeIdFollow = 3,
                 TypeIdActivate = 4,
+
+                // These 3 are not really handled as Ai Packages in the MW engine
                 TypeIdCombat = 5,
                 TypeIdPursue = 6,
                 TypeIdAvoidDoor = 7
@@ -69,6 +71,21 @@ namespace MWMechanics
             /// Simulates the passing of time
             virtual void fastForward(const MWWorld::Ptr& actor, AiState& state) {}
 
+            /// Get the target actor the AI is targeted at (not applicable to all AI packages, default return empty Ptr)
+            virtual MWWorld::Ptr getTarget() const;
+
+            /// Return true if having this AiPackage makes the actor side with the target in fights (default false)
+            virtual bool sideWithTarget() const;
+
+            /// Return true if the actor should follow the target through teleport doors (default false)
+            virtual bool followTargetThroughDoors() const;
+
+            /// Can this Ai package be canceled? (default true)
+            virtual bool canCancel() const;
+
+            /// Upon adding this Ai package, should the Ai Sequence attempt to cancel previous Ai packages (default true)?
+            virtual bool shouldCancelPreviousAi() const;
+
             bool isTargetMagicallyHidden(const MWWorld::Ptr& target);
 
         protected:
@@ -77,6 +94,8 @@ namespace MWMechanics
             bool pathTo(const MWWorld::Ptr& actor, ESM::Pathgrid::Point dest, float duration);
 
             virtual bool doesPathNeedRecalc(ESM::Pathgrid::Point dest, const ESM::Cell *cell);
+
+            void evadeObstacles(const MWWorld::Ptr& actor, float duration, const ESM::Position& pos);
 
             // TODO: all this does not belong here, move into temporary storage
             PathFinder mPathFinder;
@@ -87,7 +106,7 @@ namespace MWMechanics
             ESM::Pathgrid::Point mPrevDest;
 
         private:
-            void evadeObstacles(const MWWorld::Ptr& actor, float duration, ESM::Position& pos);
+            bool isNearInactiveCell(const ESM::Position& actorPos);
 
     };
 }

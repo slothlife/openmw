@@ -5,11 +5,12 @@ CMakeCache.txt
 cmake_install.cmake
 Makefile
 makefile
-build
+build*
 prebuilt
 
 ## doxygen
 Doxygen
+!docs/cs-manual/Makefile
 
 ## ides/editors
 *~

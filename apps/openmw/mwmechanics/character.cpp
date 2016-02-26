@@ -21,7 +21,6 @@
 
 #include <iostream>
 
-#include <osg/PositionAttitudeTransform>
 
 #include "movement.hpp"
 #include "npcstats.hpp"
@@ -32,6 +31,8 @@
 #include <components/misc/rng.hpp>
 
 #include <components/settings/settings.hpp>
+
+#include <components/sceneutil/positionattitudetransform.hpp>
 
 #include "../mwrender/animation.hpp"
 
@@ -278,7 +279,7 @@ void CharacterController::refreshCurrentAnims(CharacterState idle, CharacterStat
                 mHitState = CharState_Block;
                 mCurrentHit = "shield";
                 MWRender::Animation::AnimPriority priorityBlock (Priority_Hit);
-                priorityBlock.mPriority[MWRender::Animation::BoneGroup_LeftArm] = Priority_Block;
+                priorityBlock[MWRender::Animation::BoneGroup_LeftArm] = Priority_Block;
                 mAnimation->play(mCurrentHit, priorityBlock, MWRender::Animation::BlendMask_All, true, 1, "block start", "block stop", 0.0f, 0);
             }
 
@@ -396,10 +397,17 @@ void CharacterController::refreshCurrentAnims(CharacterState idle, CharacterStat
                 }
                 else
                 {
-                    if (weap != sWeaponTypeListEnd)
-                        movemask = MWRender::Animation::BlendMask_LowerBody;
                     movementAnimName.erase(swimpos, 4);
-                    if(!mAnimation->hasAnimation(movementAnimName))
+                    if (weap != sWeaponTypeListEnd)
+                    {
+                        std::string weapMovementAnimName = movementAnimName + weap->shortgroup;
+                        if(mAnimation->hasAnimation(weapMovementAnimName))
+                            movementAnimName = weapMovementAnimName;
+                        else
+                            movemask = MWRender::Animation::BlendMask_LowerBody;
+                    }
+
+                    if (!mAnimation->hasAnimation(movementAnimName))
                         movementAnimName.clear();
                 }
             }
@@ -483,7 +491,10 @@ void CharacterController::refreshCurrentAnims(CharacterState idle, CharacterStat
             idlePriority = Priority_SwimIdle;
         }
         else if(mIdleState == CharState_IdleSneak && mAnimation->hasAnimation("idlesneak"))
+        {
             idle = "idlesneak";
+            idlePriority[MWRender::Animation::BoneGroup_LowerBody] = Priority_SneakIdleLowerBody;
+        }
         else if(mIdleState != CharState_None)
         {
             idle = "idle";
@@ -501,8 +512,6 @@ void CharacterController::refreshCurrentAnims(CharacterState idle, CharacterStat
             mAnimation->play(mCurrentIdle, idlePriority, MWRender::Animation::BlendMask_All, false,
                              1.0f, "start", "stop", 0.0f, ~0ul, true);
     }
-
-    updateIdleStormState();
 }
 
 
@@ -511,6 +520,8 @@ void getWeaponGroup(WeaponType weaptype, std::string &group)
     const WeaponInfo *info = std::find_if(sWeaponTypeList, sWeaponTypeListEnd, FindWeaponType(weaptype));
     if(info != sWeaponTypeListEnd)
         group = info->longgroup;
+    else
+        group.clear();
 }
 
 
@@ -653,9 +664,11 @@ CharacterController::CharacterController(const MWWorld::Ptr &ptr, MWRender::Anim
     , mAnimation(anim)
     , mIdleState(CharState_None)
     , mMovementState(CharState_None)
+    , mAdjustMovementAnimSpeed(false)
     , mHasMovedInXY(false)
     , mMovementAnimationControlled(true)
     , mDeathState(CharState_None)
+    , mFloatToSurface(true)
     , mHitState(CharState_None)
     , mUpperBodyState(UpperCharState_Nothing)
     , mJumpState(JumpState_None)
@@ -701,8 +714,10 @@ CharacterController::CharacterController(const MWWorld::Ptr &ptr, MWRender::Anim
             mIdleState = CharState_Idle;
         else
         {
-            int deathindex = mPtr.getClass().getCreatureStats(mPtr).getDeathAnimation();
-            playDeath(1.0f, CharacterState(CharState_Death1 + deathindex));
+            // Set the death state, but don't play it yet
+            // We will play it in the first frame, but only if no script set the skipAnim flag
+            mDeathState = static_cast<CharacterState>(CharState_Death1 + mPtr.getClass().getCreatureStats(mPtr).getDeathAnimation());
+            mFloatToSurface = false;
         }
     }
     else
@@ -773,10 +788,15 @@ void CharacterController::handleTextKey(const std::string &groupname, const std:
         if(!sound.empty())
         {
             MWBase::SoundManager *sndMgr = MWBase::Environment::get().getSoundManager();
-            MWBase::SoundManager::PlayType type = MWBase::SoundManager::Play_TypeSfx;
             if(evt.compare(10, evt.size()-10, "left") == 0 || evt.compare(10, evt.size()-10, "right") == 0 || evt.compare(10, evt.size()-10, "land") == 0)
-                type = MWBase::SoundManager::Play_TypeFoot;
-            sndMgr->playSound3D(mPtr, sound, volume, pitch, type);
+            {
+                // Don't make foot sounds local for the player, it makes sense to keep them
+                // positioned on the ground.
+                sndMgr->playSound3D(mPtr, sound, volume, pitch, MWBase::SoundManager::Play_TypeFoot,
+                                    MWBase::SoundManager::Play_NoPlayerLocal);
+            }
+            else
+                sndMgr->playSound3D(mPtr, sound, volume, pitch);
         }
         return;
     }
@@ -863,7 +883,7 @@ void CharacterController::updatePtr(const MWWorld::Ptr &ptr)
     mPtr = ptr;
 }
 
-void CharacterController::updateIdleStormState()
+void CharacterController::updateIdleStormState(bool inwater)
 {
     bool inStormDirection = false;
     if (MWBase::Environment::get().getWorld()->isInStorm())
@@ -873,7 +893,7 @@ void CharacterController::updateIdleStormState()
         inStormDirection = std::acos(stormDirection * characterDirection / (stormDirection.length() * characterDirection.length()))
                 > osg::DegreesToRadians(120.f);
     }
-    if (inStormDirection && mUpperBodyState == UpperCharState_Nothing && mAnimation->hasAnimation("idlestorm"))
+    if (inStormDirection && !inwater && mUpperBodyState == UpperCharState_Nothing && mAnimation->hasAnimation("idlestorm"))
     {
         float complete = 0;
         mAnimation->getInfo("idlestorm", &complete);
@@ -1063,7 +1083,7 @@ bool CharacterController::updateWeaponState()
     }
 
     MWRender::Animation::AnimPriority priorityWeapon(Priority_Weapon);
-    priorityWeapon.mPriority[MWRender::Animation::BoneGroup_LowerBody] = Priority_WeaponLowerBody;
+    priorityWeapon[MWRender::Animation::BoneGroup_LowerBody] = Priority_WeaponLowerBody;
 
     bool forcestateupdate = false;
     if(weaptype != mWeaponType && mHitState != CharState_KnockDown && mHitState != CharState_KnockOut
@@ -1076,11 +1096,14 @@ bool CharacterController::updateWeaponState()
         std::string weapgroup;
         if(weaptype == WeapType_None)
         {
-            getWeaponGroup(mWeaponType, weapgroup);
-            mAnimation->play(weapgroup, priorityWeapon,
-                             MWRender::Animation::BlendMask_All, true,
-                             1.0f, "unequip start", "unequip stop", 0.0f, 0);
-            mUpperBodyState = UpperCharState_UnEquipingWeap;
+            if ((!isWerewolf || mWeaponType != WeapType_Spell))
+            {
+                getWeaponGroup(mWeaponType, weapgroup);
+                mAnimation->play(weapgroup, priorityWeapon,
+                                 MWRender::Animation::BlendMask_All, true,
+                                 1.0f, "unequip start", "unequip stop", 0.0f, 0);
+                mUpperBodyState = UpperCharState_UnEquipingWeap;
+            }
         }
         else
         {
@@ -1476,6 +1499,8 @@ bool CharacterController::updateWeaponState()
         }
     }
 
+    mAnimation->setAccurateAiming(mUpperBodyState > UpperCharState_WeapEquiped);
+
     return forcestateupdate;
 }
 
@@ -1768,7 +1793,7 @@ void CharacterController::update(float duration)
 
         if(mAnimQueue.empty() || inwater || sneak)
         {
-            idlestate = (inwater ? CharState_IdleSwim : (sneak ? CharState_IdleSneak : CharState_Idle));
+            idlestate = (inwater ? CharState_IdleSwim : (sneak && !inJump ? CharState_IdleSneak : CharState_Idle));
         }
         else if(mAnimQueue.size() > 1)
         {
@@ -1792,6 +1817,7 @@ void CharacterController::update(float duration)
                 forcestateupdate = updateCreatureState() || forcestateupdate;
 
             refreshCurrentAnims(idlestate, movestate, jumpstate, forcestateupdate);
+            updateIdleStormState(inwater);
         }
 
         if (inJump)
@@ -1810,7 +1836,6 @@ void CharacterController::update(float duration)
 
         if (!mSkipAnim)
         {
-            rot *= osg::RadiansToDegrees(1.0f);
             if(mHitState != CharState_KnockDown && mHitState != CharState_KnockOut)
             {
                 world->rotateObject(mPtr, rot.x(), rot.y(), rot.z(), true);
@@ -1835,6 +1860,13 @@ void CharacterController::update(float duration)
     }
     else if(cls.getCreatureStats(mPtr).isDead())
     {
+        // initial start of death animation for actors that started the game as dead
+        // not done in constructor since we need to give scripts a chance to set the mSkipAnim flag
+        if (!mSkipAnim && mDeathState != CharState_None && mCurrentDeath.empty())
+        {
+            playDeath(1.f, mDeathState);
+        }
+        // We must always queue movement, even if there is none, to apply gravity.
         world->queueMovement(mPtr, osg::Vec3f(0.f, 0.f, 0.f));
     }
 
@@ -1866,6 +1898,9 @@ void CharacterController::update(float duration)
 
     if (mSkipAnim)
         mAnimation->updateEffects(duration);
+
+    if (mFloatToSurface && cls.isActor() && cls.getCreatureStats(mPtr).isDead())
+        moved.z() = 1.0;
 
     // Update movement
     if(mMovementAnimationControlled && mPtr.getClass().isActor())
@@ -2048,6 +2083,15 @@ bool CharacterController::isKnockedOut() const
     return mHitState == CharState_KnockOut;
 }
 
+bool CharacterController::isSneaking() const
+{
+    return mIdleState == CharState_IdleSneak ||
+            mMovementState == CharState_SneakForward ||
+            mMovementState == CharState_SneakBack ||
+            mMovementState == CharState_SneakLeft ||
+            mMovementState == CharState_SneakRight;
+}
+
 void CharacterController::setAttackingOrSpell(bool attackingOrSpell)
 {
     mAttackingOrSpell = attackingOrSpell;
@@ -2080,7 +2124,7 @@ void CharacterController::setActive(bool active)
     mAnimation->setActive(active);
 }
 
-void CharacterController::setHeadTrackTarget(const MWWorld::Ptr &target)
+void CharacterController::setHeadTrackTarget(const MWWorld::ConstPtr &target)
 {
     mHeadTrackTarget = target;
 }
@@ -2096,27 +2140,28 @@ void CharacterController::updateHeadTracking(float duration)
 
     if (!mHeadTrackTarget.isEmpty())
     {
-        osg::MatrixList mats = head->getWorldMatrices();
-        if (mats.empty())
+        osg::NodePathList nodepaths = head->getParentalNodePaths();
+        if (nodepaths.empty())
             return;
-        osg::Matrixf mat = mats[0];
+        osg::Matrixf mat = osg::computeLocalToWorld(nodepaths[0]);
         osg::Vec3f headPos = mat.getTrans();
 
-        osg::Vec3f targetPos (mHeadTrackTarget.getRefData().getPosition().asVec3());
-        if (MWRender::Animation* anim = MWBase::Environment::get().getWorld()->getAnimation(mHeadTrackTarget))
+        osg::Vec3f direction;
+        if (const MWRender::Animation* anim = MWBase::Environment::get().getWorld()->getAnimation(mHeadTrackTarget))
         {
             const osg::Node* node = anim->getNode("Head");
             if (node == NULL)
                 node = anim->getNode("Bip01 Head");
             if (node != NULL)
             {
-                osg::MatrixList mats = node->getWorldMatrices();
-                if (mats.size())
-                    targetPos = mats[0].getTrans();
+                osg::NodePathList nodepaths = node->getParentalNodePaths();
+                if (!nodepaths.empty())
+                    direction = osg::computeLocalToWorld(nodepaths[0]).getTrans() - headPos;
             }
+            else
+                // no head node to look at, fall back to look at center of collision box
+                direction = MWBase::Environment::get().getWorld()->aimToTarget(mPtr, mHeadTrackTarget);
         }
-
-        osg::Vec3f direction = targetPos - headPos;
         direction.normalize();
 
         if (!mPtr.getRefData().getBaseNode())

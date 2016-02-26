@@ -17,7 +17,7 @@
 #include "../widget/scenetooltoggle.hpp"
 #include "../widget/scenetooltoggle2.hpp"
 
-#include "elements.hpp"
+#include "mask.hpp"
 
 void CSVRender::UnpagedWorldspaceWidget::update()
 {
@@ -102,6 +102,35 @@ bool CSVRender::UnpagedWorldspaceWidget::handleDrop (const std::vector<CSMWorld:
     return true;
 }
 
+void CSVRender::UnpagedWorldspaceWidget::clearSelection (int elementMask)
+{
+    mCell->setSelection (elementMask, Cell::Selection_Clear);
+    flagAsModified();
+}
+
+void CSVRender::UnpagedWorldspaceWidget::selectAll (int elementMask)
+{
+    mCell->setSelection (elementMask, Cell::Selection_All);
+    flagAsModified();
+}
+
+void CSVRender::UnpagedWorldspaceWidget::selectAllWithSameParentId (int elementMask)
+{
+    mCell->selectAllWithSameParentId (elementMask);
+    flagAsModified();
+}
+
+std::string CSVRender::UnpagedWorldspaceWidget::getCellId (const osg::Vec3f& point) const
+{
+    return mCellId;
+}
+
+std::vector<osg::ref_ptr<CSVRender::TagBase> > CSVRender::UnpagedWorldspaceWidget::getSelection (
+    unsigned int elementMask) const
+{
+    return mCell->getSelection (elementMask);
+}
+
 void CSVRender::UnpagedWorldspaceWidget::referenceableDataChanged (const QModelIndex& topLeft,
     const QModelIndex& bottomRight)
 {
@@ -160,13 +189,15 @@ void CSVRender::UnpagedWorldspaceWidget::addVisibilitySelectorButtons (
     CSVWidget::SceneToolToggle2 *tool)
 {
     WorldspaceWidget::addVisibilitySelectorButtons (tool);
-    tool->addButton (Element_Terrain, "Terrain", "", true);
-    tool->addButton (Element_Fog, "Fog");
+    tool->addButton (Button_Terrain, Mask_Terrain, "Terrain", "", true);
+    tool->addButton (Button_Fog, Mask_Fog, "Fog");
 }
 
 std::string CSVRender::UnpagedWorldspaceWidget::getStartupInstruction()
 {
-    osg::Vec3d position = mView->getCamera()->getViewMatrix().getTrans();
+    osg::Vec3d eye, center, up;
+    mView->getCamera()->getViewMatrixAsLookAt(eye, center, up);
+    osg::Vec3d position = eye;
 
     std::ostringstream stream;
 

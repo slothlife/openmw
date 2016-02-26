@@ -34,10 +34,9 @@ namespace
         return std::atan2(dir.x(), dir.y());
     }
 
-    float getXAngleToDir(const osg::Vec3f& dir, float dirLen = 0.0f)
+    float getXAngleToDir(const osg::Vec3f& dir)
     {
-        float len = (dirLen > 0.0f)? dirLen : dir.length();
-        return -std::asin(dir.z() / len);
+        return -std::asin(dir.z() / dir.length());
     }
 
     const float REACTION_INTERVAL = 0.25f;
@@ -57,7 +56,7 @@ namespace
             osg::Vec3f dir = to - from;
             dir.z() = 0;
             dir.normalize();
-			float verticalOffset = 200; // instead of '200' here we want the height of the actor
+            float verticalOffset = 200; // instead of '200' here we want the height of the actor
             osg::Vec3f _from = from + dir*offsetXY + osg::Vec3f(0,0,1) * verticalOffset;
 
             // cast up-down ray and find height in world space of hit
@@ -200,7 +199,7 @@ namespace MWMechanics
 
         //Update every frame
         storage.updateCombatMove(duration);
-        updateActorsMovement(actor, storage.mMovement);
+        updateActorsMovement(actor, duration, storage.mMovement);
         storage.updateAttack(characterController);
         storage.mActionCooldown -= duration;
         
@@ -306,7 +305,6 @@ namespace MWMechanics
         else
         {
             distantCombat = (rangeAttack > 500);
-            weapRange = 150.f;
         }
 
         
@@ -346,8 +344,9 @@ namespace MWMechanics
         ESM::Position pos = actor.getRefData().getPosition();
         osg::Vec3f vActorPos(pos.asVec3());
         osg::Vec3f vTargetPos(target.getRefData().getPosition().asVec3());
-        osg::Vec3f vDirToTarget = vTargetPos - vActorPos;
-        float distToTarget = vDirToTarget.length();
+
+        osg::Vec3f vAimDir = MWBase::Environment::get().getWorld()->aimToTarget(actor, target);
+        float distToTarget = MWBase::Environment::get().getWorld()->getHitDistance(actor, target);
         
         osg::Vec3f& lastActorPos = storage.mLastActorPos;
         bool& followTarget = storage.mFollowTarget;
@@ -388,7 +387,7 @@ namespace MWMechanics
             if (distantCombat)
             {
                 osg::Vec3f& lastTargetPos = storage.mLastTargetPos;
-                osg::Vec3f vAimDir = AimDirToMovingTarget(actor, target, lastTargetPos, REACTION_INTERVAL, weaptype, 
+                vAimDir = AimDirToMovingTarget(actor, target, lastTargetPos, REACTION_INTERVAL, weaptype,
                     storage.mStrength);
                 lastTargetPos = vTargetPos;
                 movement.mRotation[0] = getXAngleToDir(vAimDir);
@@ -396,8 +395,8 @@ namespace MWMechanics
             }
             else
             {
-                movement.mRotation[0] = getXAngleToDir(vDirToTarget, distToTarget);
-                movement.mRotation[2] = getZAngleToDir(vDirToTarget);
+                movement.mRotation[0] = getXAngleToDir(vAimDir);
+                movement.mRotation[2] = getZAngleToDir((vTargetPos-vActorPos)); // using vAimDir results in spastic movements since the head is animated
             }
 
             // (not quite attack dist while following)
@@ -431,19 +430,19 @@ namespace MWMechanics
                 if(speed == 0.0f) speed = actorClass.getSpeed(actor);
                 // maximum dist before pit/obstacle for actor to avoid them depending on his speed
                 float maxAvoidDist = REACTION_INTERVAL * speed + speed / MAX_VEL_ANGULAR_RADIANS * 2; // *2 - for reliability
-                preferShortcut = checkWayIsClear(vActorPos, vTargetPos, osg::Vec3f(vDirToTarget.x(), vDirToTarget.y(), 0).length() > maxAvoidDist*1.5? maxAvoidDist : maxAvoidDist/2);
+                preferShortcut = checkWayIsClear(vActorPos, vTargetPos, osg::Vec3f(vAimDir.x(), vAimDir.y(), 0).length() > maxAvoidDist*1.5? maxAvoidDist : maxAvoidDist/2);
             }
 
             // don't use pathgrid when actor can move in 3 dimensions
             if (canMoveByZ)
             {
                 preferShortcut = true;
-                movement.mRotation[0] = getXAngleToDir(vDirToTarget, distToTarget);
+                movement.mRotation[0] = getXAngleToDir(vAimDir);
             }
 
             if(preferShortcut)
             {
-                movement.mRotation[2] = getZAngleToDir(vDirToTarget);
+                movement.mRotation[2] = getZAngleToDir((vTargetPos-vActorPos));
                 forceNoShortcut = false;
                 shortcutFailPos.pos[0] = shortcutFailPos.pos[1] = shortcutFailPos.pos[2] = 0;
                 mPathFinder.clearPath();
@@ -458,28 +457,10 @@ namespace MWMechanics
 
                 followTarget = false;
 
-                buildNewPath(actor, target); //may fail to build a path, check before use
+                buildNewPath(actor, target);
 
-                // if current actor pos is closer to target then last point of path (excluding target itself) then go straight on target
-                // This works on the borders between the path grid and areas with no waypoints.
-                if(inLOS && mPathFinder.getPath().size() > 1)
-                {
-                    // get point just before target
-                    std::list<ESM::Pathgrid::Point>::const_iterator pntIter = --mPathFinder.getPath().end();
-                    --pntIter;
-                    osg::Vec3f vBeforeTarget(PathFinder::MakeOsgVec3(*pntIter));
-
-                    if(distToTarget <= (vTargetPos - vBeforeTarget).length())
-                    {
-                        mPathFinder.clearPath();
-                    }
-                }
-
-                // if there is no new path, then go straight on target
-                if (!mPathFinder.isPathConstructed())
-                {
-                    movement.mRotation[2] = getZAngleToDir(vDirToTarget);
-                }
+                // should always return a path (even if it's just go straight on target.)
+                assert(mPathFinder.isPathConstructed());
             }
 
             if (readyToAttack)
@@ -494,7 +475,7 @@ namespace MWMechanics
         return false;
     }
 
-    void AiCombat::updateActorsMovement(const MWWorld::Ptr& actor, MWMechanics::Movement& desiredMovement)
+    void AiCombat::updateActorsMovement(const MWWorld::Ptr& actor, float duration, MWMechanics::Movement& desiredMovement)
     {
         MWMechanics::Movement& actorMovementSettings = actor.getClass().getMovementSettings(actor);
         if (mPathFinder.isPathConstructed())
@@ -506,8 +487,7 @@ namespace MWMechanics
             }
             else
             {
-                zTurn(actor, mPathFinder.getZAngleToNext(pos.pos[0], pos.pos[1]));
-                actorMovementSettings.mPosition[1] = 1;
+                evadeObstacles(actor, duration, pos);
             }
         }
         else
@@ -780,9 +760,8 @@ osg::Vec3f AimDirToMovingTarget(const MWWorld::Ptr& actor, const MWWorld::Ptr& t
 
     // idea: perpendicular to dir to target speed components of target move vector and projectile vector should be the same
 
-    osg::Vec3f vActorPos = actor.getRefData().getPosition().asVec3();
     osg::Vec3f vTargetPos = target.getRefData().getPosition().asVec3();
-    osg::Vec3f vDirToTarget = vTargetPos - vActorPos;
+    osg::Vec3f vDirToTarget = MWBase::Environment::get().getWorld()->aimToTarget(actor, target);
     float distToTarget = vDirToTarget.length();
 
     osg::Vec3f vTargetMoveDir = vTargetPos - vLastTargetPos;
@@ -813,7 +792,7 @@ osg::Vec3f AimDirToMovingTarget(const MWWorld::Ptr& actor, const MWWorld::Ptr& t
         t_collision = projDistDiff / (std::sqrt(projVelDirSquared) - velDir);
     else t_collision = 0; // speed of projectile is not enough to reach moving target
 
-    return vTargetPos + vTargetMoveDir * t_collision - vActorPos;
+    return vDirToTarget + vTargetMoveDir * t_collision;
 }
 
 }

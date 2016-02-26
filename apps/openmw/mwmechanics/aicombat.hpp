@@ -53,6 +53,9 @@ namespace MWMechanics
 
             virtual void writeState(ESM::AiSequence::AiSequence &sequence) const;
 
+            virtual bool canCancel() const { return false; }
+            virtual bool shouldCancelPreviousAi() const { return false; }
+
         protected:
             virtual bool doesPathNeedRecalc(ESM::Pathgrid::Point dest, const ESM::Cell *cell);
 
@@ -65,7 +68,7 @@ namespace MWMechanics
                 AiCombatStorage& storage, MWWorld::Ptr target);
 
             /// Transfer desired movement (from AiCombatStorage) to Actor
-            void updateActorsMovement(const MWWorld::Ptr& actor, MWMechanics::Movement& movement);
+            void updateActorsMovement(const MWWorld::Ptr& actor, float duration, MWMechanics::Movement& movement);
             void rotateActorOnAxis(const MWWorld::Ptr& actor, int axis, 
                 MWMechanics::Movement& actorMovementSettings, MWMechanics::Movement& desiredMovement);
     };

@@ -6,7 +6,7 @@
 #include <QShortcut>
 #include <QLayout>
 
-#include <osgQt/GraphicsWindowQt>
+#include <extern/osgQt/GraphicsWindowQt>
 #include <osg/GraphicsContext>
 #include <osgViewer/CompositeViewer>
 #include <osgViewer/ViewerEventHandlers>
@@ -14,11 +14,12 @@
 
 #include <components/resource/scenemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/sceneutil/lightmanager.hpp>
 
 #include "../widget/scenetoolmode.hpp"
-#include "../../model/settings/usersettings.hpp"
 
 #include "lighting.hpp"
+#include "mask.hpp"
 
 namespace CSVRender
 {
@@ -52,15 +53,22 @@ RenderWidget::RenderWidget(QWidget *parent, Qt::WindowFlags f)
 
     osg::ref_ptr<osgQt::GraphicsWindowQt> window = new osgQt::GraphicsWindowQt(traits.get());
     QLayout* layout = new QHBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(window->getGLWidget());
     setLayout(layout);
+
+    // Pass events through this widget first
+    window->getGLWidget()->installEventFilter(this);
 
     mView->getCamera()->setGraphicsContext(window);
     mView->getCamera()->setClearColor( osg::Vec4(0.2, 0.2, 0.6, 1.0) );
     mView->getCamera()->setViewport( new osg::Viewport(0, 0, traits->width, traits->height) );
     mView->getCamera()->setProjectionMatrixAsPerspective(30.0f, static_cast<double>(traits->width)/static_cast<double>(traits->height), 1.0f, 10000.0f );
 
-    mRootNode = new osg::Group;
+    SceneUtil::LightManager* lightMgr = new SceneUtil::LightManager;
+    lightMgr->setStartLight(1);
+    lightMgr->setLightingMask(Mask_Lighting);
+    mRootNode = lightMgr;
 
     mView->getCamera()->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
     mView->getCamera()->getOrCreateStateSet()->setMode(GL_CULL_FACE, osg::StateAttribute::ON);
@@ -70,7 +78,7 @@ RenderWidget::RenderWidget(QWidget *parent, Qt::WindowFlags f)
     // Press S to reveal profiling stats
     mView->addEventHandler(new osgViewer::StatsHandler);
 
-    mView->getCamera()->setCullMask(~(0x1));
+    mView->getCamera()->setCullMask(~(Mask_UpdateVisitor));
 
     viewer.addView(mView);
     viewer.setDone(false);
@@ -89,8 +97,27 @@ void RenderWidget::flagAsModified()
 
 void RenderWidget::setVisibilityMask(int mask)
 {
-    // 0x1 reserved for separating cull and update visitors
-    mView->getCamera()->setCullMask(mask<<1);
+    mView->getCamera()->setCullMask(mask | Mask_ParticleSystem | Mask_Lighting);
+}
+
+bool RenderWidget::eventFilter(QObject* obj, QEvent* event)
+{
+    // handle event in this widget, is there a better way to do this?
+    if (event->type() == QEvent::MouseButtonPress)
+        mousePressEvent(static_cast<QMouseEvent*>(event));
+    if (event->type() == QEvent::MouseButtonRelease)
+        mouseReleaseEvent(static_cast<QMouseEvent*>(event));
+    if (event->type() == QEvent::MouseMove)
+        mouseMoveEvent(static_cast<QMouseEvent*>(event));
+    if (event->type() == QEvent::KeyPress)
+        keyPressEvent(static_cast<QKeyEvent*>(event));
+    if (event->type() == QEvent::KeyRelease)
+        keyReleaseEvent(static_cast<QKeyEvent*>(event));
+    if (event->type() == QEvent::Wheel)
+        wheelEvent(static_cast<QWheelEvent *>(event));
+
+    // Always pass the event on to GLWidget, i.e. to OSG event queue
+    return QObject::eventFilter(obj, event);
 }
 
 // --------------------------------------------------
@@ -102,7 +129,7 @@ CompositeViewer::CompositeViewer()
     // Qt5 is currently crashing and reporting "Cannot make QOpenGLContext current in a different thread" when the viewer is run multi-threaded, this is regression from Qt4
     osgViewer::ViewerBase::ThreadingModel threadingModel = osgViewer::ViewerBase::SingleThreaded;
 #else
-    osgViewer::ViewerBase::ThreadingModel threadingModel = osgViewer::ViewerBase::CullDrawThreadPerContext;
+    osgViewer::ViewerBase::ThreadingModel threadingModel = osgViewer::ViewerBase::DrawThreadPerContext;
 #endif
 
     setThreadingModel(threadingModel);
@@ -143,6 +170,12 @@ SceneWidget::SceneWidget(boost::shared_ptr<Resource::ResourceSystem> resourceSys
     mView->setLightingMode(osgViewer::View::NO_LIGHT);
 
     setLighting(&mLightingDay);
+
+    mResourceSystem->getSceneManager()->setParticleSystemMask(Mask_ParticleSystem);
+
+    /// \todo make shortcut configurable
+    QShortcut *focusToolbar = new QShortcut (Qt::Key_T, this, 0, 0, Qt::WidgetWithChildrenShortcut);
+    connect (focusToolbar, SIGNAL (activated()), this, SIGNAL (focusToolbarRequest()));
 }
 
 SceneWidget::~SceneWidget()
