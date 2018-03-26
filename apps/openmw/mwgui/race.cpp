@@ -2,12 +2,9 @@
 
 #include <MyGUI_ListBox.h>
 #include <MyGUI_ImageBox.h>
-#include <MyGUI_RenderManager.h>
 #include <MyGUI_Gui.h>
 
 #include <osg/Texture2D>
-
-#include <boost/format.hpp>
 
 #include <components/myguiplatform/myguitexture.hpp>
 
@@ -41,9 +38,9 @@ namespace
 namespace MWGui
 {
 
-    RaceDialog::RaceDialog(osgViewer::Viewer* viewer, Resource::ResourceSystem* resourceSystem)
+    RaceDialog::RaceDialog(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
       : WindowModal("openmw_chargen_race.layout")
-      , mViewer(viewer)
+      , mParent(parent)
       , mResourceSystem(resourceSystem)
       , mGenderIndex(0)
       , mFaceIndex(0)
@@ -123,9 +120,9 @@ namespace MWGui
             okButton->setCaption(MWBase::Environment::get().getWindowManager()->getGameSettingString("sOK", ""));
     }
 
-    void RaceDialog::open()
+    void RaceDialog::onOpen()
     {
-        WindowModal::open();
+        WindowModal::onOpen();
 
         updateRaces();
         updateSkills();
@@ -136,7 +133,7 @@ namespace MWGui
         mPreview.reset(NULL);
         mPreviewTexture.reset(NULL);
 
-        mPreview.reset(new MWRender::RaceSelectionPreview(mViewer, mResourceSystem));
+        mPreview.reset(new MWRender::RaceSelectionPreview(mParent, mResourceSystem));
         mPreview->rebuild();
         mPreview->setAngle (mCurrentAngle);
 
@@ -146,6 +143,7 @@ namespace MWGui
 
         const ESM::NPC& proto = mPreview->getPrototype();
         setRaceId(proto.mRace);
+        setGender(proto.isMale() ? GM_Male : GM_Female);
         recountParts();
 
         for (unsigned int i=0; i<mAvailableHeads.size(); ++i)
@@ -165,6 +163,8 @@ namespace MWGui
         size_t initialPos = mHeadRotate->getScrollRange()/2+mHeadRotate->getScrollRange()/10;
         mHeadRotate->setScrollPosition(initialPos);
         onHeadRotate(mHeadRotate, initialPos);
+
+        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mRaceList);
     }
 
     void RaceDialog::setRaceId(const std::string &raceId)
@@ -185,8 +185,10 @@ namespace MWGui
         updateSpellPowers();
     }
 
-    void RaceDialog::close()
+    void RaceDialog::onClose()
     {
+        WindowModal::onClose();
+
         mPreviewImage->setRenderItemTexture(NULL);
 
         mPreviewTexture.reset(NULL);
@@ -326,8 +328,11 @@ namespace MWGui
         record.mRace = mCurrentRaceId;
         record.setIsMale(mGenderIndex == 0);
 
-        record.mHead = mAvailableHeads[mFaceIndex];
-        record.mHair = mAvailableHairs[mHairIndex];
+        if (mFaceIndex >= 0 && mFaceIndex < int(mAvailableHeads.size()))
+            record.mHead = mAvailableHeads[mFaceIndex];
+
+        if (mHairIndex >= 0 && mHairIndex < int(mAvailableHairs.size()))
+            record.mHair = mAvailableHairs[mHairIndex];
 
         try
         {
@@ -359,10 +364,10 @@ namespace MWGui
         std::sort(items.begin(), items.end(), sortRaces);
 
         int index = 0;
-        for (std::vector<std::pair<std::string, std::string> >::const_iterator it = items.begin(); it != items.end(); ++it)
+        for (std::vector<std::pair<std::string, std::string> >::const_iterator iter = items.begin(); iter != items.end(); ++iter)
         {
-            mRaceList->addItem(it->second, it->first);
-            if (Misc::StringUtils::ciEqual(it->first, mCurrentRaceId))
+            mRaceList->addItem(iter->second, iter->first);
+            if (Misc::StringUtils::ciEqual(iter->first, mCurrentRaceId))
                 mRaceList->setIndexSelected(index);
             ++index;
         }

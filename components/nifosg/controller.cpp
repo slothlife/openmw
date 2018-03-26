@@ -6,11 +6,10 @@
 #include <osg/Texture2D>
 #include <osg/UserDataContainer>
 
-#include <osgAnimation/MorphGeometry>
-
 #include <osgParticle/Emitter>
 
 #include <components/nif/data.hpp>
+#include <components/sceneutil/morphgeometry.hpp>
 
 #include "userdata.hpp"
 
@@ -188,7 +187,7 @@ GeomMorpherController::GeomMorpherController(const Nif::NiMorphData *data)
 
 void GeomMorpherController::update(osg::NodeVisitor *nv, osg::Drawable *drawable)
 {
-    osgAnimation::MorphGeometry* morphGeom = static_cast<osgAnimation::MorphGeometry*>(drawable);
+    SceneUtil::MorphGeometry* morphGeom = static_cast<SceneUtil::MorphGeometry*>(drawable);
     if (hasInput())
     {
         if (mKeyFrames.size() <= 1)
@@ -202,7 +201,7 @@ void GeomMorpherController::update(osg::NodeVisitor *nv, osg::Drawable *drawable
                 val = it->interpKey(input);
             val = std::max(0.f, std::min(1.f, val));
 
-            osgAnimation::MorphGeometry::MorphTarget& target = morphGeom->getMorphTarget(i);
+            SceneUtil::MorphGeometry::MorphTarget& target = morphGeom->getMorphTarget(i);
             if (target.getWeight() != val)
             {
                 target.setWeight(val);
@@ -210,15 +209,13 @@ void GeomMorpherController::update(osg::NodeVisitor *nv, osg::Drawable *drawable
             }
         }
     }
-
-    // morphGeometry::transformSoftwareMethod() done in cull callback i.e. only for visible morph geometries
 }
 
 UVController::UVController()
 {
 }
 
-UVController::UVController(const Nif::NiUVData *data, std::set<int> textureUnits)
+UVController::UVController(const Nif::NiUVData *data, const std::set<int>& textureUnits)
     : mUTrans(data->mKeyList[0], 0.f)
     , mVTrans(data->mKeyList[1], 0.f)
     , mUScale(data->mKeyList[2], 1.f)
@@ -239,7 +236,7 @@ UVController::UVController(const UVController& copy, const osg::CopyOp& copyop)
 
 void UVController::setDefaults(osg::StateSet *stateset)
 {
-    osg::TexMat* texMat = new osg::TexMat;
+    osg::ref_ptr<osg::TexMat> texMat (new osg::TexMat);
     for (std::set<int>::const_iterator it = mTextureUnits.begin(); it != mTextureUnits.end(); ++it)
         stateset->setTextureAttributeAndModes(*it, texMat, osg::StateAttribute::ON);
 }
@@ -381,14 +378,14 @@ void MaterialColorController::apply(osg::StateSet *stateset, osg::NodeVisitor *n
     }
 }
 
-FlipController::FlipController(const Nif::NiFlipController *ctrl, std::vector<osg::ref_ptr<osg::Texture2D> > textures)
+FlipController::FlipController(const Nif::NiFlipController *ctrl, const std::vector<osg::ref_ptr<osg::Texture2D> >& textures)
     : mTexSlot(ctrl->mTexSlot)
     , mDelta(ctrl->mDelta)
     , mTextures(textures)
 {
 }
 
-FlipController::FlipController(int texSlot, float delta, std::vector<osg::ref_ptr<osg::Texture2D> > textures)
+FlipController::FlipController(int texSlot, float delta, const std::vector<osg::ref_ptr<osg::Texture2D> >& textures)
     : mTexSlot(texSlot)
     , mDelta(delta)
     , mTextures(textures)
@@ -439,12 +436,15 @@ ParticleSystemController::ParticleSystemController(const ParticleSystemControlle
 
 void ParticleSystemController::operator() (osg::Node* node, osg::NodeVisitor* nv)
 {
+    osgParticle::ParticleProcessor* emitter = static_cast<osgParticle::ParticleProcessor*>(node);
     if (hasInput())
     {
-        osgParticle::ParticleProcessor* emitter = static_cast<osgParticle::ParticleProcessor*>(node);
         float time = getInputValue(nv);
+        emitter->getParticleSystem()->setFrozen(false);
         emitter->setEnabled(time >= mEmitStart && time < mEmitStop);
     }
+    else
+        emitter->getParticleSystem()->setFrozen(true);
     traverse(node, nv);
 }
 

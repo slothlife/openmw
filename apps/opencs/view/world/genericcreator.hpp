@@ -33,6 +33,7 @@ namespace CSVWorld
             QUndoStack& mUndoStack;
             CSMWorld::UniversalId mListId;
             QPushButton *mCreate;
+            QPushButton *mCancel;
             QLineEdit *mId;
             std::string mErrors;
             QHBoxLayout *mLayout;
@@ -56,9 +57,14 @@ namespace CSVWorld
 
             void insertAtBeginning (QWidget *widget, bool stretched);
 
+            /// \brief Insert given widget before Create and Cancel buttons.
+            /// \param widget Widget to add to layout.
+            /// \param stretched Whether widget should be streched or not.
             void insertBeforeButtons (QWidget *widget, bool stretched);
 
             virtual std::string getId() const;
+
+            std::string getClonedId() const;
 
             virtual std::string getIdValidatorResult() const;
 
@@ -67,7 +73,7 @@ namespace CSVWorld
 
             /// Allow subclasses to wrap the create command together with additional commands
             /// into a macro.
-            virtual void pushCommand (std::auto_ptr<CSMWorld::CreateCommand> command,
+            virtual void pushCommand (std::unique_ptr<CSMWorld::CreateCommand> command,
                 const std::string& id);
 
             CSMWorld::Data& getData() const;
@@ -99,6 +105,8 @@ namespace CSVWorld
             virtual void cloneMode(const std::string& originId,
                                    const CSMWorld::UniversalId::Type type);
 
+            virtual void touch(const std::vector<CSMWorld::UniversalId>& ids);
+
             virtual std::string getErrors() const;
             ///< Return formatted error descriptions for the current state of the creator. if an empty
             /// string is returned, there is no error.
@@ -111,6 +119,9 @@ namespace CSVWorld
         private slots:
 
             void textChanged (const QString& text);
+
+            /// \brief Create record if able to after Return key is pressed on input.
+            void inputReturnPressed();
 
             void create();
 

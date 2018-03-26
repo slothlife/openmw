@@ -2,10 +2,9 @@
 #define GAME_MWWORLD_CLASS_H
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
-
-#include <boost/shared_ptr.hpp>
 
 #include "ptr.hpp"
 
@@ -51,7 +50,7 @@ namespace MWWorld
     /// \brief Base class for referenceable esm records
     class Class
     {
-            static std::map<std::string, boost::shared_ptr<Class> > sClasses;
+            static std::map<std::string, std::shared_ptr<Class> > sClasses;
 
             std::string mTypeName;
 
@@ -63,7 +62,7 @@ namespace MWWorld
 
             Class();
 
-            boost::shared_ptr<Action> defaultItemActivate(const Ptr &ptr, const Ptr &actor) const;
+            std::shared_ptr<Action> defaultItemActivate(const Ptr &ptr, const Ptr &actor) const;
             ///< Generate default action for activating inventory items
 
             virtual Ptr copyToCellImpl(const ConstPtr &ptr, CellStore &cell) const;
@@ -98,6 +97,11 @@ namespace MWWorld
             virtual MWGui::ToolTipInfo getToolTipInfo (const ConstPtr& ptr, int count) const;
             ///< @return the content of the tool tip to be displayed. raises exception if the object has no tooltip.
 
+            virtual bool showsInInventory (const ConstPtr& ptr) const;
+            ///< Return whether ptr shows in inventory views.
+            /// Hidden items are not displayed and cannot be (re)moved by the user.
+            /// \return True if shown, false if hidden.
+
             virtual MWMechanics::NpcStats& getNpcStats (const Ptr& ptr) const;
             ///< Return NPC stats or throw an exception, if class does not have NPC stats
             /// (default implementation: throw an exception)
@@ -120,7 +124,7 @@ namespace MWWorld
             ///               enums. ignored for creature attacks.
             /// (default implementation: throw an exception)
 
-            virtual void onHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object, const MWWorld::Ptr &attacker, bool successful) const;
+            virtual void onHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object, const MWWorld::Ptr &attacker, const osg::Vec3f &hitPosition, bool successful) const;
             ///< Alerts \a ptr that it's being hit for \a damage points to health if \a ishealth is
             /// true (else fatigue) by \a object (sword, arrow, etc). \a attacker specifies the
             /// actor responsible for the attack, and \a successful specifies if the hit is
@@ -130,10 +134,14 @@ namespace MWWorld
             ///< Play the appropriate sound for a blocked attack, depending on the currently equipped shield
             /// (default implementation: throw an exception)
 
-            virtual boost::shared_ptr<Action> activate (const Ptr& ptr, const Ptr& actor) const;
+            virtual bool canBeActivated(const Ptr& ptr) const;
+            ///< \return Can the player activate this object?
+            /// (default implementation: true if object's user-readable name is not empty, false otherwise)
+
+            virtual std::shared_ptr<Action> activate (const Ptr& ptr, const Ptr& actor) const;
             ///< Generate action for activation (default implementation: return a null action).
 
-            virtual boost::shared_ptr<Action> use (const Ptr& ptr)
+            virtual std::shared_ptr<Action> use (const Ptr& ptr)
                 const;
             ///< Generate action for using via inventory menu (default implementation: return a
             /// null action).
@@ -262,6 +270,9 @@ namespace MWWorld
 
             virtual std::string getModel(const MWWorld::ConstPtr &ptr) const;
 
+            virtual bool useAnim() const;
+            ///< Whether or not to use animated variant of model (default false)
+
             virtual void getModelsToPreload(const MWWorld::Ptr& ptr, std::vector<std::string>& models) const;
             ///< Get a list of models to preload that this object may use (directly or indirectly). default implementation: list getModel().
 
@@ -279,6 +290,9 @@ namespace MWWorld
             virtual bool isKey (const MWWorld::ConstPtr& ptr) const { return false; }
 
             virtual bool isGold(const MWWorld::ConstPtr& ptr) const { return false; }
+
+            virtual bool allowTelekinesis(const MWWorld::ConstPtr& ptr) const { return true; }
+            ///< Return whether this class of object can be activated with telekinesis
             
             /// Get a blood texture suitable for \a ptr (see Blood Texture 0-2 in Morrowind.ini)
             virtual int getBloodTexture (const MWWorld::ConstPtr& ptr) const;
@@ -286,6 +300,10 @@ namespace MWWorld
             virtual Ptr copyToCell(const ConstPtr &ptr, CellStore &cell, int count) const;
 
             virtual Ptr copyToCell(const ConstPtr &ptr, CellStore &cell, const ESM::Position &pos, int count) const;
+
+            virtual bool isActivator() const {
+                return false;
+            }
 
             virtual bool isActor() const {
                 return false;
@@ -295,11 +313,17 @@ namespace MWWorld
                 return false;
             }
 
+            virtual bool isDoor() const {
+                return false;
+            }
+
             virtual bool isBipedal(const MWWorld::ConstPtr& ptr) const;
             virtual bool canFly(const MWWorld::ConstPtr& ptr) const;
             virtual bool canSwim(const MWWorld::ConstPtr& ptr) const;
             virtual bool canWalk(const MWWorld::ConstPtr& ptr) const;
             bool isPureWaterCreature(const MWWorld::Ptr& ptr) const;
+            bool isPureFlyingCreature(const MWWorld::Ptr& ptr) const;
+            bool isPureLandCreature(const MWWorld::Ptr& ptr) const;
             bool isMobile(const MWWorld::Ptr& ptr) const;
 
             virtual int getSkill(const MWWorld::Ptr& ptr, int skill) const;
@@ -315,7 +339,7 @@ namespace MWWorld
             static const Class& get (const std::string& key);
             ///< If there is no class for this \a key, an exception is thrown.
 
-            static void registerClass (const std::string& key,  boost::shared_ptr<Class> instance);
+            static void registerClass (const std::string& key,  std::shared_ptr<Class> instance);
 
             virtual int getBaseGold(const MWWorld::ConstPtr& ptr) const;
 
@@ -339,7 +363,7 @@ namespace MWWorld
             virtual int getPrimaryFactionRank (const MWWorld::ConstPtr& ptr) const;
 
             /// Get the effective armor rating, factoring in the actor's skills, for the given armor.
-            virtual int getEffectiveArmorRating(const MWWorld::ConstPtr& armor, const MWWorld::Ptr& actor) const;
+            virtual float getEffectiveArmorRating(const MWWorld::ConstPtr& armor, const MWWorld::Ptr& actor) const;
     };
 }
 

@@ -149,6 +149,10 @@ namespace MWInput
         void clearAllKeyBindings (ICS::Control* control);
         void clearAllControllerBindings (ICS::Control* control);
 
+        virtual int countSavedGameRecords() const;
+        virtual void write(ESM::ESMWriter& writer, Loading::Listener& progress);
+        virtual void readRecord(ESM::ESMReader& reader, uint32_t type);
+
     private:
         SDL_Window* mWindow;
         bool mWindowVisible;
@@ -210,6 +214,7 @@ namespace MWInput
         void updateIdleTime(float dt);
 
         void setPlayerControlsEnabled(bool enabled);
+        void handleGuiArrowKey(int action);
 
         void updateCursorMode();
 

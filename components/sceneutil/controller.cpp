@@ -1,9 +1,12 @@
 #include "controller.hpp"
 
+#include <algorithm>
+
 #include "statesetupdater.hpp"
 
 #include <osg/Drawable>
-#include <osg/Geode>
+#include <osg/Geometry>
+#include <osg/MatrixTransform>
 #include <osg/NodeCallback>
 
 namespace SceneUtil
@@ -27,22 +30,22 @@ namespace SceneUtil
             return mSource->getValue(nv);
     }
 
-    void Controller::setSource(boost::shared_ptr<ControllerSource> source)
+    void Controller::setSource(std::shared_ptr<ControllerSource> source)
     {
         mSource = source;
     }
 
-    void Controller::setFunction(boost::shared_ptr<ControllerFunction> function)
+    void Controller::setFunction(std::shared_ptr<ControllerFunction> function)
     {
         mFunction = function;
     }
 
-    boost::shared_ptr<ControllerSource> Controller::getSource() const
+    std::shared_ptr<ControllerSource> Controller::getSource() const
     {
         return mSource;
     }
 
-    boost::shared_ptr<ControllerFunction> Controller::getFunction() const
+    std::shared_ptr<ControllerFunction> Controller::getFunction() const
     {
         return mFunction;
     }
@@ -64,6 +67,21 @@ namespace SceneUtil
 
     void ControllerVisitor::apply(osg::Node &node)
     {
+        applyNode(node);
+    }
+
+    void ControllerVisitor::apply(osg::MatrixTransform &node)
+    {
+        applyNode(node);
+    }
+
+    void ControllerVisitor::apply(osg::Geometry &node)
+    {
+        applyNode(node);
+    }
+
+    void ControllerVisitor::applyNode(osg::Node &node)
+    {
         osg::Callback* callback = node.getUpdateCallback();
         while (callback)
         {
@@ -82,22 +100,8 @@ namespace SceneUtil
             callback = callback->getNestedCallback();
         }
 
-        traverse(node);
-    }
-
-    void ControllerVisitor::apply(osg::Geode &geode)
-    {
-        for (unsigned int i=0; i<geode.getNumDrawables(); ++i)
-        {
-            osg::Drawable* drw = geode.getDrawable(i);
-
-            osg::Callback* callback = drw->getUpdateCallback();
-
-            if (Controller* ctrl = dynamic_cast<Controller*>(callback))
-                visit(geode, *ctrl);
-        }
-
-        apply(static_cast<osg::Node&>(geode));
+        if (node.getNumChildrenRequiringUpdateTraversal() > 0)
+            traverse(node);
     }
 
     AssignControllerSourcesVisitor::AssignControllerSourcesVisitor()
@@ -105,7 +109,7 @@ namespace SceneUtil
     {
     }
 
-    AssignControllerSourcesVisitor::AssignControllerSourcesVisitor(boost::shared_ptr<ControllerSource> toAssign)
+    AssignControllerSourcesVisitor::AssignControllerSourcesVisitor(std::shared_ptr<ControllerSource> toAssign)
         : ControllerVisitor()
         , mToAssign(toAssign)
     {

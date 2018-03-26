@@ -52,7 +52,6 @@ namespace Compiler
         const int opcodeGetLineOfSight = 0x2000222;
         const int opcodeGetLineOfSightExplicit = 0x2000223;
         const int opcodeToggleAI = 0x2000224;
-        const int opcodeToggleAIExplicit = 0x2000225;
         const int opcodeGetTarget = 0x2000238;
         const int opcodeGetTargetExplicit = 0x2000239;
         const int opcodeStartCombat = 0x200023a;
@@ -201,6 +200,7 @@ namespace Compiler
     {
         const int opcodeXBox = 0x200000c;
         const int opcodeOnActivate = 0x200000d;
+        const int opcodeOnActivateExplicit = 0x2000306;
         const int opcodeActivate = 0x2000075;
         const int opcodeActivateExplicit = 0x2000244;
         const int opcodeLock = 0x20004;
@@ -277,6 +277,8 @@ namespace Compiler
         const int opcodeEnableTeleporting = 0x2000216;
         const int opcodeShowVars = 0x200021d;
         const int opcodeShowVarsExplicit = 0x200021e;
+        const int opcodeShow = 0x2000304;
+        const int opcodeShowExplicit = 0x2000305;
         const int opcodeToggleGodMode = 0x200021f;
         const int opcodeToggleScripts = 0x2000301;
         const int opcodeDisableLevitation = 0x2000220;
@@ -291,6 +293,8 @@ namespace Compiler
         const int opcodeRemoveFromLevCreature = 0x20002fc;
         const int opcodeAddToLevItem = 0x20002fd;
         const int opcodeRemoveFromLevItem = 0x20002fe;
+        const int opcodeShowSceneGraph = 0x2002f;
+        const int opcodeShowSceneGraphExplicit = 0x20030;
     }
 
     namespace Sky

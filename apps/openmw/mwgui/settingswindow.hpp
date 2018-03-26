@@ -15,11 +15,11 @@ namespace MWGui
         public:
             SettingsWindow();
 
-            virtual void open();
-
-            virtual void exit();
+            virtual void onOpen();
 
             void updateControlsBox();
+
+            void onResChange(int, int) { center(); }
 
     protected:
             MyGUI::TabControl* mSettingsTab;
@@ -66,6 +66,8 @@ namespace MWGui
 
             void configureWidgets(MyGUI::Widget* widget);
             void updateSliderLabel(MyGUI::ScrollBar* scroller, const std::string& value);
+
+            void layoutControlsBox();
         
         private:
             void resetScrollbars();

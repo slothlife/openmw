@@ -30,15 +30,11 @@ namespace MWMechanics
 {
     AiTravel::AiTravel(float x, float y, float z)
     : mX(x),mY(y),mZ(z)
-    , mCellX(std::numeric_limits<int>::max())
-    , mCellY(std::numeric_limits<int>::max())
     {
     }
 
     AiTravel::AiTravel(const ESM::AiSequence::AiTravel *travel)
         : mX(travel->mData.mX), mY(travel->mData.mY), mZ(travel->mData.mZ)
-        , mCellX(std::numeric_limits<int>::max())
-        , mCellY(std::numeric_limits<int>::max())
     {
 
     }
@@ -66,18 +62,6 @@ namespace MWMechanics
         return false;
     }
 
-    bool AiTravel::doesPathNeedRecalc(ESM::Pathgrid::Point dest, const ESM::Cell *cell)
-    {
-        bool cellChange = cell->mData.mX != mCellX || cell->mData.mY != mCellY;
-        if (!mPathFinder.isPathConstructed() || cellChange)
-        {
-            mCellX = cell->mData.mX;
-            mCellY = cell->mData.mY;
-            return true;
-        }
-        return false;
-    }
-
     int AiTravel::getTypeId() const
     {
         return TypeIdTravel;
@@ -95,7 +79,7 @@ namespace MWMechanics
 
     void AiTravel::writeState(ESM::AiSequence::AiSequence &sequence) const
     {
-        std::auto_ptr<ESM::AiSequence::AiTravel> travel(new ESM::AiSequence::AiTravel());
+        std::unique_ptr<ESM::AiSequence::AiTravel> travel(new ESM::AiSequence::AiTravel());
         travel->mData.mX = mX;
         travel->mData.mY = mY;
         travel->mData.mZ = mZ;

@@ -1,9 +1,10 @@
 #!/bin/sh
 
-export CXX=clang++
-export CC=clang
-
-brew tap openmw/openmw
 brew update
-brew unlink boost
-brew install openmw-mygui openmw-bullet openmw-sdl2 openmw-ffmpeg openmw/openmw/qt unshield
+
+brew outdated cmake || brew upgrade cmake
+brew outdated pkgconfig || brew upgrade pkgconfig
+brew install $macos_qt_formula
+
+curl https://downloads.openmw.org/osx/dependencies/openmw-deps-c40905f.zip -o ~/openmw-deps.zip
+unzip ~/openmw-deps.zip -d /private/tmp/openmw-deps > /dev/null

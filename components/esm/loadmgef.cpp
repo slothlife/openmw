@@ -1,9 +1,6 @@
 #include "loadmgef.hpp"
 
-#include <stdexcept>
 #include <sstream>
-
-#include <boost/lexical_cast.hpp>
 
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
@@ -211,7 +208,7 @@ void MagicEffect::load(ESMReader &esm, bool &isDeleted)
     while (esm.hasMoreSubs())
     {
         esm.getSubName();
-        switch (esm.retSubName().val)
+        switch (esm.retSubName().intval)
         {
             case ESM::FourCC<'I','T','E','X'>::value:
                 mIcon = esm.getHString();
@@ -298,10 +295,10 @@ short MagicEffect::getResistanceEffect(short effect)
 
     for (int i=0; i<2; ++i)
     {
-        effects[CalmHumanoid] = ResistMagicka;
-        effects[FrenzyHumanoid] = ResistMagicka;
-        effects[DemoralizeHumanoid] = ResistMagicka;
-        effects[RallyHumanoid] = ResistMagicka;
+        effects[CalmHumanoid+i] = ResistMagicka;
+        effects[FrenzyHumanoid+i] = ResistMagicka;
+        effects[DemoralizeHumanoid+i] = ResistMagicka;
+        effects[RallyHumanoid+i] = ResistMagicka;
     }
 
     effects[TurnUndead] = ResistMagicka;
@@ -341,10 +338,10 @@ short MagicEffect::getWeaknessEffect(short effect)
 
     for (int i=0; i<2; ++i)
     {
-        effects[CalmHumanoid] = WeaknessToMagicka;
-        effects[FrenzyHumanoid] = WeaknessToMagicka;
-        effects[DemoralizeHumanoid] = WeaknessToMagicka;
-        effects[RallyHumanoid] = WeaknessToMagicka;
+        effects[CalmHumanoid+i] = WeaknessToMagicka;
+        effects[FrenzyHumanoid+i] = WeaknessToMagicka;
+        effects[DemoralizeHumanoid+i] = WeaknessToMagicka;
+        effects[RallyHumanoid+i] = WeaknessToMagicka;
     }
 
     effects[TurnUndead] = WeaknessToMagicka;
@@ -356,8 +353,7 @@ short MagicEffect::getWeaknessEffect(short effect)
     effects[Corprus] = WeaknessToCorprusDisease;
     effects[Poison] = WeaknessToPoison;
 
-    // Weakness to magicka or -1 ?
-    effects[Paralyze] = WeaknessToMagicka;
+    effects[Paralyze] = -1;
 
     if (effects.find(effect) != effects.end())
         return effects[effect];
@@ -384,6 +380,7 @@ static std::map<short,std::string> genNameMap()
     names[131] ="sEffectBoundGloves";
     names[128] ="sEffectBoundHelm";
     names[125] ="sEffectBoundLongbow";
+    names[126] ="sEffectExtraSpell";
     names[121] ="sEffectBoundLongsword";
     names[122] ="sEffectBoundMace";
     names[130] ="sEffectBoundShield";
@@ -525,7 +522,7 @@ const std::string &MagicEffect::effectIdToString(short effectID)
 {
     std::map<short,std::string>::const_iterator name = sNames.find(effectID);
     if(name == sNames.end())
-        throw std::runtime_error(std::string("Unimplemented effect ID ")+boost::lexical_cast<std::string>(effectID));
+        throw std::runtime_error(std::string("Unimplemented effect ID ")+std::to_string(effectID));
 
     return name->second;
 }

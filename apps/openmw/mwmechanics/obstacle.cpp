@@ -1,6 +1,7 @@
 #include "obstacle.hpp"
 
 #include <components/esm/loadcell.hpp>
+#include <components/sceneutil/positionattitudetransform.hpp>
 
 #include "../mwbase/world.hpp"
 #include "../mwworld/class.hpp"
@@ -23,50 +24,48 @@ namespace MWMechanics
         { -1.0f, -1.0f }    // move to side and backwards
     };
 
-    // Proximity check function for interior doors.  Given that most interior cells
-    // do not have many doors performance shouldn't be too much of an issue.
-    //
-    // Limitation: there can be false detections, and does not test whether the
-    // actor is facing the door.
-    bool proximityToDoor(const MWWorld::Ptr& actor, float minSqr)
+    bool proximityToDoor(const MWWorld::Ptr& actor, float minDist)
     {
-        if(getNearbyDoor(actor, minSqr)!=MWWorld::Ptr())
+        if(getNearbyDoor(actor, minDist)!=MWWorld::Ptr())
             return true;
         else
             return false;
     }
 
-    MWWorld::Ptr getNearbyDoor(const MWWorld::Ptr& actor, float minSqr)
+    MWWorld::Ptr getNearbyDoor(const MWWorld::Ptr& actor, float minDist)
     {
         MWWorld::CellStore *cell = actor.getCell();
-
-        if(cell->getCell()->isExterior())
-            return MWWorld::Ptr(); // check interior cells only
 
         // Check all the doors in this cell
         const MWWorld::CellRefList<ESM::Door>& doors = cell->getReadOnlyDoors();
         const MWWorld::CellRefList<ESM::Door>::List& refList = doors.mList;
         MWWorld::CellRefList<ESM::Door>::List::const_iterator it = refList.begin();
         osg::Vec3f pos(actor.getRefData().getPosition().asVec3());
+        pos.z() = 0;
 
-        /// TODO: How to check whether the actor is facing a door? Below code is for
-        ///       the player, perhaps it can be adapted.
-        //MWWorld::Ptr ptr = MWBase::Environment::get().getWorld()->getFacedObject();
-        //if(!ptr.isEmpty())
-            //std::cout << "faced door " << ptr.getClass().getName(ptr) << std::endl;
+        osg::Vec3f actorDir = (actor.getRefData().getBaseNode()->getAttitude() * osg::Vec3f(0,1,0));
 
-        /// TODO: The in-game observation of rot[2] value seems to be the
-        ///       opposite of the code in World::activateDoor() ::confused::
         for (; it != refList.end(); ++it)
         {
             const MWWorld::LiveCellRef<ESM::Door>& ref = *it;
-            if((pos - ref.mData.getPosition().asVec3()).length2() < minSqr
-                    && ref.mData.getPosition().rot[2] == ref.mRef.getPosition().rot[2])
-            {
-                // FIXME cast
-                return MWWorld::Ptr(&const_cast<MWWorld::LiveCellRef<ESM::Door> &>(ref), actor.getCell()); // found, stop searching
-            }
+
+            osg::Vec3f doorPos(ref.mData.getPosition().asVec3());
+            doorPos.z() = 0;
+
+            float angle = std::acos(actorDir * (doorPos - pos) / (actorDir.length() * (doorPos - pos).length()));
+
+            // Allow 60 degrees angle between actor and door
+            if (angle < -osg::PI / 3 || angle > osg::PI / 3)
+                continue;
+
+            // Door is not close enough
+            if ((pos - doorPos).length2() > minDist*minDist)
+                continue;
+
+            // FIXME cast
+            return MWWorld::Ptr(&const_cast<MWWorld::LiveCellRef<ESM::Door> &>(ref), actor.getCell()); // found, stop searching
         }
+
         return MWWorld::Ptr(); // none found
     }
 
@@ -93,6 +92,11 @@ namespace MWMechanics
         return mWalkState == State_Norm;
     }
 
+    bool ObstacleCheck::isEvading() const
+    {
+        return mWalkState == State_Evade;
+    }
+
     /*
      * input   - actor, duration (time since last check)
      * output  - true if evasive action needs to be taken
@@ -115,13 +119,13 @@ namespace MWMechanics
      * u = how long to move sideways
      *
      */
-    bool ObstacleCheck::check(const MWWorld::Ptr& actor, float duration)
+    bool ObstacleCheck::check(const MWWorld::Ptr& actor, float duration, float scaleMinimumDistance)
     {
         const MWWorld::Class& cls = actor.getClass();
         ESM::Position pos = actor.getRefData().getPosition();
 
         if(mDistSameSpot == -1)
-            mDistSameSpot = DIST_SAME_SPOT * cls.getSpeed(actor);
+            mDistSameSpot = DIST_SAME_SPOT * cls.getSpeed(actor) * scaleMinimumDistance;
 
         float distSameSpot = mDistSameSpot * duration;
 

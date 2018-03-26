@@ -11,18 +11,20 @@
 #include "../../model/prefs/state.hpp"
 
 #include "page.hpp"
+#include "keybindingpage.hpp"
+#include "contextmenulist.hpp"
 
 void CSVPrefs::Dialogue::buildCategorySelector (QSplitter *main)
 {
-    mList = new QListWidget (main);
-    mList->setMinimumWidth (50);
-    mList->setSizePolicy (QSizePolicy::Expanding, QSizePolicy::Expanding);
+    CSVPrefs::ContextMenuList* list = new CSVPrefs::ContextMenuList (main);
+    list->setMinimumWidth (50);
+    list->setSizePolicy (QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    mList->setSelectionBehavior (QAbstractItemView::SelectItems);
+    list->setSelectionBehavior (QAbstractItemView::SelectItems);
 
-    main->addWidget (mList);
+    main->addWidget (list);
 
-    QFontMetrics metrics (QApplication::font());
+    QFontMetrics metrics (QApplication::font(list));
 
     int maxWidth = 1;
 
@@ -32,12 +34,12 @@ void CSVPrefs::Dialogue::buildCategorySelector (QSplitter *main)
         QString label = QString::fromUtf8 (iter->second.getKey().c_str());
         maxWidth = std::max (maxWidth, metrics.width (label));
 
-        mList->addItem (label);
+        list->addItem (label);
     }
 
-    mList->setMaximumWidth (maxWidth + 10);
+    list->setMaximumWidth (maxWidth + 10);
 
-    connect (mList, SIGNAL (currentItemChanged (QListWidgetItem *, QListWidgetItem *)),
+    connect (list, SIGNAL (currentItemChanged (QListWidgetItem *, QListWidgetItem *)),
         this, SLOT (selectionChanged (QListWidgetItem *, QListWidgetItem *)));
 }
 
@@ -52,8 +54,10 @@ void CSVPrefs::Dialogue::buildContentArea (QSplitter *main)
 CSVPrefs::PageBase *CSVPrefs::Dialogue::makePage (const std::string& key)
 {
     // special case page code goes here
-
-    return new Page (CSMPrefs::get()[key], mContent);
+    if (key == "Key Bindings")
+        return new KeyBindingPage(CSMPrefs::get()[key], mContent);
+    else
+        return new Page (CSMPrefs::get()[key], mContent);
 }
 
 CSVPrefs::Dialogue::Dialogue()
@@ -80,7 +84,6 @@ CSVPrefs::Dialogue::~Dialogue()
 void CSVPrefs::Dialogue::closeEvent (QCloseEvent *event)
 {
     QMainWindow::closeEvent (event);
-
     CSMPrefs::State::get().save();
 }
 

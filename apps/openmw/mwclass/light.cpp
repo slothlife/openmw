@@ -49,10 +49,13 @@ namespace MWClass
 
         if (!ref->mBase->mSound.empty() && !(ref->mBase->mData.mFlags & ESM::Light::OffDefault))
             MWBase::Environment::get().getSoundManager()->playSound3D(ptr, ref->mBase->mSound, 1.0, 1.0,
-                                                                      MWBase::SoundManager::Play_TypeSfx,
-                                                                      MWBase::SoundManager::Play_Loop);
+                                                                      MWSound::Type::Sfx,
+                                                                      MWSound::PlayMode::Loop);
+    }
 
-        MWBase::Environment::get().getMechanicsManager()->add(ptr);
+    bool Light::useAnim() const
+    {
+        return true;
     }
 
     std::string Light::getModel(const MWWorld::ConstPtr &ptr) const
@@ -76,15 +79,15 @@ namespace MWClass
         return ref->mBase->mName;
     }
 
-    boost::shared_ptr<MWWorld::Action> Light::activate (const MWWorld::Ptr& ptr,
+    std::shared_ptr<MWWorld::Action> Light::activate (const MWWorld::Ptr& ptr,
         const MWWorld::Ptr& actor) const
     {
         if(!MWBase::Environment::get().getWindowManager()->isAllowed(MWGui::GW_Inventory))
-            return boost::shared_ptr<MWWorld::Action>(new MWWorld::NullAction());
+            return std::shared_ptr<MWWorld::Action>(new MWWorld::NullAction());
 
         MWWorld::LiveCellRef<ESM::Light> *ref = ptr.get<ESM::Light>();
         if(!(ref->mBase->mData.mFlags&ESM::Light::Carry))
-            return boost::shared_ptr<MWWorld::Action>(new MWWorld::FailedAction());
+            return std::shared_ptr<MWWorld::Action>(new MWWorld::FailedAction());
 
         return defaultItemActivate(ptr, actor);
     }
@@ -117,7 +120,7 @@ namespace MWClass
 
     void Light::registerSelf()
     {
-        boost::shared_ptr<Class> instance (new Light);
+        std::shared_ptr<Class> instance (new Light);
 
         registerClass (typeid (ESM::Light).name(), instance);
     }
@@ -159,11 +162,9 @@ namespace MWClass
 
         if (Settings::Manager::getBool("show effect duration","Game"))
             text += "\n#{sDuration}: " + MWGui::ToolTips::toString(ptr.getClass().getRemainingUsageTime(ptr));
-        if (ref->mBase->mData.mWeight != 0)
-        {
-            text += "\n#{sWeight}: " + MWGui::ToolTips::toString(ref->mBase->mData.mWeight);
-            text += MWGui::ToolTips::getValueString(ref->mBase->mData.mValue, "#{sValue}");
-        }
+
+        text += MWGui::ToolTips::getWeightString(ref->mBase->mData.mWeight, "#{sWeight}");
+        text += MWGui::ToolTips::getValueString(ref->mBase->mData.mValue, "#{sValue}");
 
         if (MWBase::Environment::get().getWindowManager()->getFullHelp()) {
             text += MWGui::ToolTips::getCellRefString(ptr.getCellRef());
@@ -175,9 +176,19 @@ namespace MWClass
         return info;
     }
 
-    boost::shared_ptr<MWWorld::Action> Light::use (const MWWorld::Ptr& ptr) const
+    bool Light::showsInInventory (const MWWorld::ConstPtr& ptr) const
     {
-        boost::shared_ptr<MWWorld::Action> action(new MWWorld::ActionEquip(ptr));
+        const ESM::Light* light = ptr.get<ESM::Light>()->mBase;
+
+        if (!(light->mData.mFlags & ESM::Light::Carry))
+            return false;
+
+        return Class::showsInInventory(ptr);
+    }
+
+    std::shared_ptr<MWWorld::Action> Light::use (const MWWorld::Ptr& ptr) const
+    {
+        std::shared_ptr<MWWorld::Action> action(new MWWorld::ActionEquip(ptr));
 
         action->setSound(getUpSoundId(ptr));
 
@@ -222,24 +233,6 @@ namespace MWClass
         if (!(ref->mBase->mData.mFlags & ESM::Light::Carry))
             return std::make_pair(0,"");
 
-        MWWorld::InventoryStore& invStore = npc.getClass().getInventoryStore(npc);
-        MWWorld::ContainerStoreIterator weapon = invStore.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
-
-        if(weapon == invStore.end())
-            return std::make_pair(1,"");
-
-        /// \todo the 2h check is repeated many times; put it in a function
-        if(weapon->getTypeName() == typeid(ESM::Weapon).name() &&
-                (weapon->get<ESM::Weapon>()->mBase->mData.mType == ESM::Weapon::LongBladeTwoHand ||
-        weapon->get<ESM::Weapon>()->mBase->mData.mType == ESM::Weapon::BluntTwoClose ||
-        weapon->get<ESM::Weapon>()->mBase->mData.mType == ESM::Weapon::BluntTwoWide ||
-        weapon->get<ESM::Weapon>()->mBase->mData.mType == ESM::Weapon::SpearTwoWide ||
-        weapon->get<ESM::Weapon>()->mBase->mData.mType == ESM::Weapon::AxeTwoHand ||
-        weapon->get<ESM::Weapon>()->mBase->mData.mType == ESM::Weapon::MarksmanBow ||
-        weapon->get<ESM::Weapon>()->mBase->mData.mType == ESM::Weapon::MarksmanCrossbow))
-        {
-            return std::make_pair(3,"");
-        }
         return std::make_pair(1,"");
     }
 

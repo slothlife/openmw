@@ -6,12 +6,12 @@
 #include <components/esm/loadmgef.hpp>
 
 #include "../mwworld/ptr.hpp"
+#include "../mwworld/containerstore.hpp"
 
 #include "../mwrender/animation.hpp"
 
 namespace MWWorld
 {
-    class ContainerStoreIterator;
     class InventoryStore;
 }
 
@@ -88,6 +88,8 @@ enum CharacterState {
 
     CharState_TurnLeft,
     CharState_TurnRight,
+    CharState_SwimTurnLeft,
+    CharState_SwimTurnRight,
 
     CharState_Jump,
 
@@ -97,12 +99,17 @@ enum CharacterState {
     CharState_Death4,
     CharState_Death5,
     CharState_SwimDeath,
+    CharState_SwimDeathKnockDown,
+    CharState_SwimDeathKnockOut,
     CharState_DeathKnockDown,
     CharState_DeathKnockOut,
 
     CharState_Hit,
+    CharState_SwimHit,
     CharState_KnockDown,
     CharState_KnockOut,
+    CharState_SwimKnockDown,
+    CharState_SwimKnockOut,
     CharState_Block
 };
 
@@ -140,12 +147,20 @@ enum JumpingState {
     JumpState_Landing
 };
 
+struct WeaponInfo;
+
 class CharacterController : public MWRender::Animation::TextKeyListener
 {
     MWWorld::Ptr mPtr;
     MWRender::Animation *mAnimation;
     
-    typedef std::deque<std::pair<std::string,size_t> > AnimationQueue;
+    struct AnimationQueueEntry
+    {
+        std::string mGroup;
+        size_t mLoopCount;
+        bool mPersist;
+    };
+    typedef std::deque<AnimationQueueEntry> AnimationQueue;
     AnimationQueue mAnimQueue;
 
     CharacterState mIdleState;
@@ -189,9 +204,15 @@ class CharacterController : public MWRender::Animation::TextKeyListener
 
     bool mAttackingOrSpell;
 
-    void determineAttackType();
+    float mTimeUntilWake;
+
+    void setAttackTypeBasedOnMovement();
 
     void refreshCurrentAnims(CharacterState idle, CharacterState movement, JumpingState jump, bool force=false);
+    void refreshHitRecoilAnims();
+    void refreshJumpAnims(const WeaponInfo* weap, JumpingState jump, bool force=false);
+    void refreshMovementAnims(const WeaponInfo* weap, CharacterState movement, bool force=false);
+    void refreshIdleAnims(const WeaponInfo* weap, CharacterState idle, bool force=false);
 
     void clearAnimQueue();
 
@@ -199,18 +220,19 @@ class CharacterController : public MWRender::Animation::TextKeyListener
     bool updateCreatureState();
     void updateIdleStormState(bool inwater);
 
-    void updateHeadTracking(float duration);
+    void updateAnimQueue();
 
-    void castSpell(const std::string& spellid);
+    void updateHeadTracking(float duration);
 
     void updateMagicEffects();
 
     void playDeath(float startpoint, CharacterState death);
+    CharacterState chooseRandomDeathState() const;
     void playRandomDeath(float startpoint = 0.0f);
 
     /// choose a random animation group with \a prefix and numeric suffix
     /// @param num if non-NULL, the chosen animation number will be written here
-    std::string chooseRandomGroup (const std::string& prefix, int* num = NULL);
+    std::string chooseRandomGroup (const std::string& prefix, int* num = NULL) const;
 
     bool updateCarriedLeftVisible(WeaponType weaptype) const;
 
@@ -228,12 +250,21 @@ public:
 
     void update(float duration);
 
-    bool playGroup(const std::string &groupname, int mode, int count);
+    void persistAnimationState();
+    void unpersistAnimationState();
+
+    bool playGroup(const std::string &groupname, int mode, int count, bool persist=false);
     void skipAnim();
     bool isAnimPlaying(const std::string &groupName);
 
-    /// @return false if the character has already been killed before
-    bool kill();
+    enum KillResult
+    {
+        Result_DeathAnimStarted,
+        Result_DeathAnimPlaying,
+        Result_DeathAnimJustFinished,
+        Result_DeathAnimFinished
+    };
+    KillResult kill();
 
     void resurrect();
     bool isDead() const
@@ -241,11 +272,19 @@ public:
 
     void forceStateUpdate();
     
+    bool isAttackPrepairing() const;
     bool isReadyToBlock() const;
+    bool isKnockedDown() const;
     bool isKnockedOut() const;
+    bool isRecovery() const;
     bool isSneaking() const;
+    bool isRunning() const;
+    bool isTurning() const;
+    bool isAttackingOrSpell() const;
 
     void setAttackingOrSpell(bool attackingOrSpell);
+    void setAIAttackType(const std::string& attackType);
+    static void setAttackTypeRandomly(std::string& attackType);
 
     bool readyToPrepareAttack() const;
     bool readyToStartAttack() const;
@@ -253,10 +292,12 @@ public:
     float getAttackStrength() const;
 
     /// @see Animation::setActive
-    void setActive(bool active);
+    void setActive(int active);
 
     /// Make this character turn its head towards \a target. To turn off head tracking, pass an empty Ptr.
     void setHeadTrackTarget(const MWWorld::ConstPtr& target);
+
+    void playSwishSound(float attackStrength);
 };
 
     MWWorld::ContainerStoreIterator getActiveWeapon(CreatureStats &stats, MWWorld::InventoryStore &inv, WeaponType *weaptype);

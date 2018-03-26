@@ -6,11 +6,12 @@
 #include "../mwbase/world.hpp"
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
+
 #include "../mwworld/class.hpp"
 #include "../mwworld/cellstore.hpp"
+
 #include "creaturestats.hpp"
 #include "movement.hpp"
-
 #include "steering.hpp"
 
 namespace MWMechanics
@@ -21,28 +22,35 @@ struct AiFollowStorage : AiTemporaryBase
 {
     float mTimer;
     bool mMoving;
+    float mTargetAngleRadians;
+    bool mTurnActorToTarget;
 
-    AiFollowStorage() : mTimer(0.f), mMoving(false) {}
+    AiFollowStorage() :
+        mTimer(0.f),
+        mMoving(false),
+        mTargetAngleRadians(0.f),
+        mTurnActorToTarget(false)
+    {}
 };
 
 int AiFollow::mFollowIndexCounter = 0;
 
 AiFollow::AiFollow(const std::string &actorId,float duration, float x, float y, float z)
-: mAlwaysFollow(false), mCommanded(false), mRemainingDuration(duration), mX(x), mY(y), mZ(z)
+: mAlwaysFollow(false), mCommanded(false), mDuration(duration), mRemainingDuration(duration), mX(x), mY(y), mZ(z)
 , mActorRefId(actorId), mActorId(-1), mCellId(""), mActive(false), mFollowIndex(mFollowIndexCounter++)
 {
 }
+
 AiFollow::AiFollow(const std::string &actorId,const std::string &cellId,float duration, float x, float y, float z)
-: mAlwaysFollow(false), mCommanded(false), mRemainingDuration(duration), mX(x), mY(y), mZ(z)
+: mAlwaysFollow(false), mCommanded(false), mDuration(duration), mRemainingDuration(duration), mX(x), mY(y), mZ(z)
 , mActorRefId(actorId), mActorId(-1), mCellId(cellId), mActive(false), mFollowIndex(mFollowIndexCounter++)
 {
 }
 
 AiFollow::AiFollow(const std::string &actorId, bool commanded)
-: mAlwaysFollow(true), mCommanded(commanded), mRemainingDuration(0), mX(0), mY(0), mZ(0)
+: mAlwaysFollow(true), mCommanded(commanded), mDuration(0), mRemainingDuration(0), mX(0), mY(0), mZ(0)
 , mActorRefId(actorId), mActorId(-1), mCellId(""), mActive(false), mFollowIndex(mFollowIndexCounter++)
 {
-
 }
 
 AiFollow::AiFollow(const ESM::AiSequence::AiFollow *follow)
@@ -51,7 +59,12 @@ AiFollow::AiFollow(const ESM::AiSequence::AiFollow *follow)
     , mActorRefId(follow->mTargetId), mActorId(-1)
     , mCellId(follow->mCellId), mActive(follow->mActive), mFollowIndex(mFollowIndexCounter++)
 {
-
+// mDuration isn't saved in the save file, so just giving it "1" for now if the package had a duration.
+// The exact value of mDuration only matters for repeating packages.
+    if (mRemainingDuration > 0) // Previously mRemainingDuration could be negative even when mDuration was 0. Checking for > 0 should fix old saves.
+       mDuration = 1;
+    else
+       mDuration = 0;
 }
 
 bool AiFollow::execute (const MWWorld::Ptr& actor, CharacterController& characterController, AiState& state, float duration)
@@ -66,6 +79,15 @@ bool AiFollow::execute (const MWWorld::Ptr& actor, CharacterController& characte
     actor.getClass().getCreatureStats(actor).setDrawState(DrawState_Nothing);
 
     AiFollowStorage& storage = state.get<AiFollowStorage>();
+
+    bool& rotate = storage.mTurnActorToTarget;
+    if (rotate)
+    {
+        if (zTurn(actor, storage.mTargetAngleRadians))
+            rotate = false;
+
+        return false;
+    }
 
     // AiFollow requires the target to be in range and within sight for the initial activation
     if (!mActive)
@@ -86,40 +108,50 @@ bool AiFollow::execute (const MWWorld::Ptr& actor, CharacterController& characte
 
     ESM::Position pos = actor.getRefData().getPosition(); //position of the actor
 
-    float followDistance = 180;
-    // When there are multiple actors following the same target, they form a group with each group member at 180*(i+1) distance to the target
-    int i=0;
+    // The distances below are approximations based on observations of the original engine.
+    // If only one actor is following the target, it uses 186.
+    // If there are multiple actors following the same target, they form a group with each group member at 313 + (130 * i) distance to the target.
+
+    short followDistance = 186;
     std::list<int> followers = MWBase::Environment::get().getMechanicsManager()->getActorsFollowingIndices(target);
-    followers.sort();
-    for (std::list<int>::iterator it = followers.begin(); it != followers.end(); ++it)
+    if (followers.size() >= 2)
     {
-        if (*it == mFollowIndex)
-            followDistance *= (i+1);
-        ++i;
+        followDistance = 313;
+        short i = 0;
+        followers.sort();
+        for (std::list<int>::iterator it = followers.begin(); it != followers.end(); ++it)
+        {
+            if (*it == mFollowIndex)
+                followDistance += 130 * i;
+            ++i;
+        }
     }
 
-    if(!mAlwaysFollow) //Update if you only follow for a bit
+    if (!mAlwaysFollow) //Update if you only follow for a bit
     {
          //Check if we've run out of time
-        if (mRemainingDuration != 0)
+        if (mDuration > 0)
         {
-            mRemainingDuration -= duration;
-            if (duration <= 0)
+            mRemainingDuration -= ((duration*MWBase::Environment::get().getWorld()->getTimeScaleFactor()) / 3600);
+            if (mRemainingDuration <= 0)
+            {
+                mRemainingDuration = mDuration;
                 return true;
+            }
         }
 
-        if((pos.pos[0]-mX)*(pos.pos[0]-mX) +
+        if ((pos.pos[0]-mX)*(pos.pos[0]-mX) +
             (pos.pos[1]-mY)*(pos.pos[1]-mY) +
             (pos.pos[2]-mZ)*(pos.pos[2]-mZ) < followDistance*followDistance) //Close-ish to final position
         {
-            if(actor.getCell()->isExterior()) //Outside?
+            if (actor.getCell()->isExterior()) //Outside?
             {
-                if(mCellId == "") //No cell to travel to
+                if (mCellId == "") //No cell to travel to
                     return true;
             }
             else
             {
-                if(mCellId == actor.getCell()->getCell()->mName) //Cell to travel to
+                if (mCellId == actor.getCell()->getCell()->mName) //Cell to travel to
                     return true;
             }
         }
@@ -128,35 +160,44 @@ bool AiFollow::execute (const MWWorld::Ptr& actor, CharacterController& characte
     //Set the target destination from the actor
     ESM::Pathgrid::Point dest = target.getRefData().getPosition().pos;
 
-    float dist = distance(dest, pos.pos[0], pos.pos[1], pos.pos[2]);
-
-    if (storage.mMoving)  //Stop when you get close
-        storage.mMoving = (dist > followDistance);
+    short baseFollowDistance = followDistance;
+    short threshold = 30; // to avoid constant switching between moving/stopping
+    if (storage.mMoving)
+        followDistance -= threshold;
     else
+        followDistance += threshold;
+
+    osg::Vec3f targetPos(target.getRefData().getPosition().asVec3());
+    osg::Vec3f actorPos(actor.getRefData().getPosition().asVec3());
+
+    osg::Vec3f dir = targetPos - actorPos;
+    float targetDistSqr = dir.length2();
+
+    if (targetDistSqr <= followDistance * followDistance)
     {
-        const float threshold = 10;
-        storage.mMoving = (dist > followDistance + threshold);
+        float faceAngleRadians = std::atan2(dir.x(), dir.y());
+
+        if (!zTurn(actor, faceAngleRadians, osg::DegreesToRadians(45.f)))
+        {
+            storage.mTargetAngleRadians = faceAngleRadians;
+            storage.mTurnActorToTarget = true;
+        }
+
+        return false;
     }
 
-    if(!storage.mMoving)
-    {
-        actor.getClass().getMovementSettings(actor).mPosition[1] = 0;
+    storage.mMoving = !pathTo(actor, dest, duration, baseFollowDistance); // Go to the destination
 
-        // turn towards target anyway
-        float directionX = target.getRefData().getPosition().pos[0] - actor.getRefData().getPosition().pos[0];
-        float directionY = target.getRefData().getPosition().pos[1] - actor.getRefData().getPosition().pos[1];
-        zTurn(actor, std::atan2(directionX,directionY), osg::DegreesToRadians(5.f));
-    }
-    else
+    if (storage.mMoving)
     {
-        pathTo(actor, dest, duration); //Go to the destination
-    }
+        //Check if you're far away
+        float dist = distance(dest, pos.pos[0], pos.pos[1], pos.pos[2]);
 
-    //Check if you're far away
-    if(dist > 450)
-        actor.getClass().getCreatureStats(actor).setMovementFlag(MWMechanics::CreatureStats::Flag_Run, true); //Make NPC run
-    else if(dist  < 325) //Have a bit of a dead zone, otherwise npc will constantly flip between running and not when right on the edge of the running threshhold
-        actor.getClass().getCreatureStats(actor).setMovementFlag(MWMechanics::CreatureStats::Flag_Run, false); //make NPC walk
+        if (dist > 450)
+            actor.getClass().getCreatureStats(actor).setMovementFlag(MWMechanics::CreatureStats::Flag_Run, true); //Make NPC run
+        else if (dist < 325) //Have a bit of a dead zone, otherwise npc will constantly flip between running and not when right on the edge of the running threshold
+            actor.getClass().getCreatureStats(actor).setMovementFlag(MWMechanics::CreatureStats::Flag_Run, false); //make NPC walk
+    }
 
     return false;
 }
@@ -183,7 +224,7 @@ bool AiFollow::isCommanded() const
 
 void AiFollow::writeState(ESM::AiSequence::AiSequence &sequence) const
 {
-    std::auto_ptr<ESM::AiSequence::AiFollow> follow(new ESM::AiSequence::AiFollow());
+    std::unique_ptr<ESM::AiSequence::AiFollow> follow(new ESM::AiSequence::AiFollow());
     follow->mData.mX = mX;
     follow->mData.mY = mY;
     follow->mData.mZ = mZ;
@@ -226,6 +267,13 @@ MWWorld::Ptr AiFollow::getTarget() const
 int AiFollow::getFollowIndex() const
 {
     return mFollowIndex;
+}
+
+void AiFollow::fastForward(const MWWorld::Ptr& actor, AiState &state)
+{
+    // Update duration counter if this package has a duration
+    if (mDuration > 0)
+        mRemainingDuration--;
 }
 
 }

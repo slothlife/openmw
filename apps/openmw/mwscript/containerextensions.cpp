@@ -10,7 +10,6 @@
 #include <components/compiler/opcodes.hpp>
 
 #include <components/interpreter/interpreter.hpp>
-#include <components/interpreter/runtime.hpp>
 #include <components/interpreter/opcodes.hpp>
 
 #include <components/misc/stringops.hpp>
@@ -102,7 +101,7 @@ namespace MWScript
                             || ::Misc::StringUtils::ciEqual(item, "gold_025")
                             || ::Misc::StringUtils::ciEqual(item, "gold_100"))
                         item = "gold_001";
-                    
+
                     MWWorld::ContainerStore& store = ptr.getClass().getContainerStore (ptr);
 
                     runtime.push (store.count(item));
@@ -136,11 +135,11 @@ namespace MWScript
                             || ::Misc::StringUtils::ciEqual(item, "gold_025")
                             || ::Misc::StringUtils::ciEqual(item, "gold_100"))
                         item = "gold_001";
-                        
+
                     MWWorld::ContainerStore& store = ptr.getClass().getContainerStore (ptr);
 
                     std::string itemName;
-                    for (MWWorld::ContainerStoreIterator iter(store.begin()); iter != store.end(); ++iter)
+                    for (MWWorld::ConstContainerStoreIterator iter(store.cbegin()); iter != store.cend(); ++iter)
                         if (::Misc::StringUtils::ciEqual(iter->getCellRef().getRefId(), item))
                             itemName = iter->getClass().getName(*iter);
 
@@ -188,14 +187,19 @@ namespace MWScript
                             break;
                     }
                     if (it == invStore.end())
-                        throw std::runtime_error("Item to equip not found");
+                    {
+                        it = ptr.getClass().getContainerStore (ptr).add (item, 1, ptr);
+                        std::cerr << "Implicitly adding one " << item << " to container "
+                            "to fulfil requirements of Equip instruction" << std::endl;
+                    }
 
                     if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
                         MWBase::Environment::get().getWindowManager()->useItem(*it);
                     else
                     {
-                        boost::shared_ptr<MWWorld::Action> action = it->getClass().use(*it);
-                        action->execute(ptr);
+                        std::shared_ptr<MWWorld::Action> action = it->getClass().use(*it);
+                        // No equip sound for actors other than the player
+                        action->execute(ptr, true);
                     }
                 }
         };
@@ -252,9 +256,9 @@ namespace MWScript
                             throw std::runtime_error ("armor index out of range");
                     }
 
-                    MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
-
-                    MWWorld::ContainerStoreIterator it = invStore.getSlot (slot);
+                    const MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
+                    MWWorld::ConstContainerStoreIterator it = invStore.getSlot (slot);
+                    
                     if (it == invStore.end() || it->getTypeName () != typeid(ESM::Armor).name())
                     {
                         runtime.push(-1);
@@ -285,10 +289,10 @@ namespace MWScript
                     std::string item = runtime.getStringLiteral (runtime[0].mInteger);
                     runtime.pop();
 
-                    MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
+                    const MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
                     for (int slot = 0; slot < MWWorld::InventoryStore::Slots; ++slot)
                     {
-                        MWWorld::ContainerStoreIterator it = invStore.getSlot (slot);
+                        MWWorld::ConstContainerStoreIterator it = invStore.getSlot (slot);
                         if (it != invStore.end() && ::Misc::StringUtils::ciEqual(it->getCellRef().getRefId(), item))
                         {
                             runtime.push(1);
@@ -312,12 +316,12 @@ namespace MWScript
                     runtime.pop();
 
                     int count = 0;
-                    MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
-                    for (MWWorld::ContainerStoreIterator it = invStore.begin(MWWorld::ContainerStore::Type_Miscellaneous);
-                         it != invStore.end(); ++it)
+                    const MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
+                    for (MWWorld::ConstContainerStoreIterator it = invStore.cbegin(MWWorld::ContainerStore::Type_Miscellaneous);
+                         it != invStore.cend(); ++it)
                     {
                         if (::Misc::StringUtils::ciEqual(it->getCellRef().getSoul(), name))
-                            ++count;
+                            count += it->getRefData().getCount();
                     }
                     runtime.push(count);
                 }
@@ -332,8 +336,8 @@ namespace MWScript
                 {
                     MWWorld::Ptr ptr = R()(runtime);
 
-                    MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
-                    MWWorld::ContainerStoreIterator it = invStore.getSlot (MWWorld::InventoryStore::Slot_CarriedRight);
+                    const MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore (ptr);
+                    MWWorld::ConstContainerStoreIterator it = invStore.getSlot (MWWorld::InventoryStore::Slot_CarriedRight);
                     if (it == invStore.end() || it->getTypeName () != typeid(ESM::Weapon).name())
                     {
                         runtime.push(-1);

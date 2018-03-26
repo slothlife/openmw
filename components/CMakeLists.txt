@@ -2,27 +2,33 @@ project (Components)
 
 # Version file
 set (VERSION_IN_FILE "${OpenMW_SOURCE_DIR}/files/version.in")
-set (VERSION_FILE "${OpenMW_BINARY_DIR}/resources/version")
+set (VERSION_FILE_PATH_BASE "${OpenMW_BINARY_DIR}")
+set (VERSION_FILE_PATH_RELATIVE resources/version)
 if (GIT_CHECKOUT)
-  add_custom_target (git-version
+    get_generator_is_multi_config(multi_config)
+    add_custom_target (git-version
        COMMAND ${CMAKE_COMMAND}
             -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
             -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
             -DVERSION_IN_FILE=${VERSION_IN_FILE}
-            -DVERSION_FILE=${VERSION_FILE}
+            -DVERSION_FILE_PATH_BASE=${VERSION_FILE_PATH_BASE}
+            -DVERSION_FILE_PATH_RELATIVE=${VERSION_FILE_PATH_RELATIVE}
             -DOPENMW_VERSION_MAJOR=${OPENMW_VERSION_MAJOR}
             -DOPENMW_VERSION_MINOR=${OPENMW_VERSION_MINOR}
             -DOPENMW_VERSION_RELEASE=${OPENMW_VERSION_RELEASE}
             -DOPENMW_VERSION=${OPENMW_VERSION}
+            -DMACROSFILE=${CMAKE_SOURCE_DIR}/cmake/OpenMWMacros.cmake
+            "-DCMAKE_CONFIGURATION_TYPES=${CMAKE_CONFIGURATION_TYPES}"
+            -Dgenerator_is_multi_config_var=${multi_config}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/GitVersion.cmake
             VERBATIM)
 else (GIT_CHECKOUT)
-    configure_file(${VERSION_IN_FILE} ${VERSION_FILE})
+    configure_resource_file(${VERSION_IN_FILE} ${VERSION_FILE_PATH_BASE} ${VERSION_FILE_PATH_RELATIVE})
 endif (GIT_CHECKOUT)
 
 if (OPENGL_ES)
     find_package(OpenGLES REQUIRED)
-else()    
+else()
     find_package(OpenGL REQUIRED)
 endif()
 
@@ -41,7 +47,7 @@ add_component_dir (vfs
     )
 
 add_component_dir (resource
-    scenemanager keyframemanager imagemanager bulletshapemanager bulletshape niffilemanager objectcache multiobjectcache resourcesystem resourcemanager
+    scenemanager keyframemanager imagemanager bulletshapemanager bulletshape niffilemanager objectcache multiobjectcache resourcesystem resourcemanager stats
     )
 
 add_component_dir (shader
@@ -49,8 +55,8 @@ add_component_dir (shader
     )
 
 add_component_dir (sceneutil
-    clone attach visitor util statesetupdater controller skeleton riggeometry lightcontroller
-    lightmanager lightutil positionattitudetransform workqueue unrefqueue
+    clone attach visitor util statesetupdater controller skeleton riggeometry morphgeometry lightcontroller
+    lightmanager lightutil positionattitudetransform workqueue unrefqueue pathgridutil waterutil writescene serialize optimizer
     )
 
 add_component_dir (nif
@@ -77,7 +83,7 @@ add_component_dir (esm
     loadweap records aipackage effectlist spelllist variant variantimp loadtes3 cellref filter
     savedgame journalentry queststate locals globalscript player objectstate cellid cellstate globalmap inventorystate containerstate npcstate creaturestate dialoguestate statstate
     npcstats creaturestats weatherstate quickkeys fogstate spellstate activespells creaturelevliststate doorstate projectilestate debugprofile
-    aisequence magiceffects util custommarkerstate stolenitems transport
+    aisequence magiceffects util custommarkerstate stolenitems transport animationstate controlsstate
     )
 
 add_component_dir (esmterrain
@@ -85,7 +91,7 @@ add_component_dir (esmterrain
     )
 
 add_component_dir (misc
-    utf8stream stringops resourcehelpers rng
+    utf8stream stringops resourcehelpers rng messageformatparser
     )
 
 IF(NOT WIN32 AND NOT APPLE)
@@ -93,7 +99,7 @@ IF(NOT WIN32 AND NOT APPLE)
     add_definitions(-DGLOBAL_CONFIG_PATH="${GLOBAL_CONFIG_PATH}")
 ENDIF()
 add_component_dir (files
-    linuxpath androidpath windowspath macospath fixedpath multidircollection collections configurationmanager
+    linuxpath androidpath windowspath macospath fixedpath multidircollection collections configurationmanager escape
     lowlevelfile constrainedfilestream memorystream
     )
 
@@ -114,7 +120,7 @@ add_component_dir (translation
     )
 
 add_component_dir (terrain
-    storage world buffercache defs terraingrid material
+    storage world buffercache defs terraingrid material terraindrawable texturemanager chunkmanager compositemaprenderer quadtreeworld quadtreenode viewdata
     )
 
 add_component_dir (loadinglistener
@@ -181,7 +187,7 @@ if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     endif()
 endif ()
 
-include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${Bullet_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(components STATIC ${COMPONENT_FILES} ${MOC_SRCS} ${ESM_UI_HDR})
 
@@ -191,7 +197,7 @@ else()
     set(GL_LIB ${OPENGL_gl_LIBRARY})
 endif()
 
-target_link_libraries(components 
+target_link_libraries(components
     ${Boost_SYSTEM_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
     ${Boost_THREAD_LIBRARY}
@@ -202,14 +208,14 @@ target_link_libraries(components
     ${OSGUTIL_LIBRARIES}
     ${OSGDB_LIBRARIES}
     ${OSGVIEWER_LIBRARIES}
+    ${OSGTEXT_LIBRARIES}
     ${OSGGA_LIBRARIES}
-    ${OSGFX_LIBRARIES}
     ${OSGANIMATION_LIBRARIES}
-    ${BULLET_LIBRARIES}
-    ${SDL2_LIBRARY}
+    ${Bullet_LIBRARIES}
+    ${SDL2_LIBRARIES}
     # For MyGUI platform
     ${GL_LIB}
-    ${MYGUI_LIBRARIES}
+    ${MyGUI_LIBRARIES}
     )
 
 if (WIN32)

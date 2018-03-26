@@ -6,11 +6,6 @@
 #include "MyGUI_TextureUtility.h"
 #include "MyGUI_FactoryManager.h"
 
-#include <stdint.h>
-#include <boost/function.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/make_shared.hpp>
-
 #include <components/misc/utf8stream.hpp>
 
 namespace MWGui
@@ -21,6 +16,7 @@ class BookPageImpl;
 
 static bool ucsSpace (int codePoint);
 static bool ucsLineBreak (int codePoint);
+static bool ucsCarriageReturn (int codePoint);
 static bool ucsBreakingSpace (int codePoint);
 
 struct BookTypesetter::Style { virtual ~Style () {} };
@@ -40,22 +36,22 @@ struct TypesetBookImpl : TypesetBook
         MyGUI::Colour         mNormalColour;
         InteractiveId mInteractiveId;
 
-        bool match (MyGUI::IFont* tstFont, MyGUI::Colour tstHotColour, MyGUI::Colour tstActiveColour,
-                    MyGUI::Colour tstNormalColour, intptr_t tstInteractiveId)
+        bool match (MyGUI::IFont* tstFont, const MyGUI::Colour& tstHotColour, const MyGUI::Colour& tstActiveColour,
+                    const MyGUI::Colour& tstNormalColour, intptr_t tstInteractiveId)
         {
             return (mFont == tstFont) &&
                    partal_match (tstHotColour, tstActiveColour, tstNormalColour, tstInteractiveId);
         }
 
-        bool match (char const * tstFont, MyGUI::Colour tstHotColour, MyGUI::Colour tstActiveColour,
-                    MyGUI::Colour tstNormalColour, intptr_t tstInteractiveId)
+        bool match (char const * tstFont, const MyGUI::Colour& tstHotColour, const MyGUI::Colour& tstActiveColour,
+                    const MyGUI::Colour& tstNormalColour, intptr_t tstInteractiveId)
         {
             return (mFont->getResourceName ()   == tstFont) &&
                    partal_match (tstHotColour, tstActiveColour, tstNormalColour, tstInteractiveId);
         }
 
-        bool partal_match (MyGUI::Colour tstHotColour, MyGUI::Colour tstActiveColour,
-                           MyGUI::Colour tstNormalColour, intptr_t tstInteractiveId)
+        bool partal_match (const MyGUI::Colour& tstHotColour, const MyGUI::Colour& tstActiveColour,
+                           const MyGUI::Colour& tstNormalColour, intptr_t tstInteractiveId)
         {
             return
                 (mHotColour                  == tstHotColour     ) &&
@@ -157,7 +153,7 @@ struct TypesetBookImpl : TypesetBook
     StyleImpl * hitTestWithMargin (int left, int top)
     {
         StyleImpl * hit = hitTest(left, top);
-        if (hit && hit->mInteractiveId > 0)
+        if (hit && hit->mInteractiveId != 0)
             return hit;
 
         const int maxMargin = 10;
@@ -174,7 +170,7 @@ struct TypesetBookImpl : TypesetBook
                 else
                     hit = hitTest(left+margin, top);
 
-                if (hit && hit->mInteractiveId > 0)
+                if (hit && hit->mInteractiveId != 0)
                     return hit;
             }
         }
@@ -235,7 +231,7 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
     };
 
     typedef TypesetBookImpl Book;
-    typedef boost::shared_ptr <Book> BookPtr;
+    typedef std::shared_ptr <Book> BookPtr;
     typedef std::vector<PartialText>::const_iterator PartialTextConstIterator;
 
     int mPageWidth;
@@ -259,14 +255,14 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
         mCurrentContent (NULL),
         mCurrentAlignment (AlignLeft)
     {
-        mBook = boost::make_shared <Book> ();
+        mBook = std::make_shared <Book> ();
     }
 
     virtual ~Typesetter ()
     {
     }
 
-    Style * createStyle (char const * fontName, Colour fontColour)
+    Style * createStyle (char const * fontName, const Colour& fontColour)
     {
         if (strcmp(fontName, "") == 0)
             return createStyle(MyGUI::FontManager::getInstance().getDefaultFont().c_str(), fontColour);
@@ -275,18 +271,22 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
             if (i->match (fontName, fontColour, fontColour, fontColour, 0))
                 return &*i;
 
-        StyleImpl & style = *mBook->mStyles.insert (mBook->mStyles.end (), StyleImpl ());
+        MyGUI::IFont* font = MyGUI::FontManager::getInstance().getByName(fontName);
+        if (!font)
+            throw std::runtime_error(std::string("can't find font ") + fontName);
 
-        style.mFont = MyGUI::FontManager::getInstance().getByName(fontName);
+        StyleImpl & style = *mBook->mStyles.insert (mBook->mStyles.end (), StyleImpl ());
+        style.mFont = font;
         style.mHotColour = fontColour;
         style.mActiveColour = fontColour;
         style.mNormalColour = fontColour;
         style.mInteractiveId = 0;
-                
+
         return &style;
     }
 
-    Style* createHotStyle (Style* baseStyle, Colour normalColour, Colour hoverColour, Colour activeColour, InteractiveId id, bool unique)
+    Style* createHotStyle (Style* baseStyle, const Colour& normalColour, const Colour& hoverColour,
+                           const Colour& activeColour, InteractiveId id, bool unique)
     {
         StyleImpl* BaseStyle = static_cast <StyleImpl*> (baseStyle);
 
@@ -343,7 +343,7 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
 
         writeImpl (static_cast <StyleImpl*> (style), begin_, end_);
     }
-    
+
     void lineBreak (float margin)
     {
         assert (margin == 0); //TODO: figure out proper behavior here...
@@ -353,7 +353,7 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
         mRun = NULL;
         mLine = NULL;
     }
-    
+
     void sectionBreak (int margin)
     {
         add_partial_text();
@@ -436,9 +436,15 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
             }
             else
             {
+                // The section won't completely fit on the current page. Finish the current page and start a new one.
+                mBook->mPages.push_back (Page (curPageStart, curPageStop));
+
+                curPageStart = i->mRect.top;
+                curPageStop = i->mRect.bottom;
+
                 //split section
                 int sectionHeightLeft = sectionHeight;
-                while (sectionHeightLeft > mPageHeight)
+                while (sectionHeightLeft >= mPageHeight)
                 {
                     // Adjust to the top of the first line that does not fit on the current page anymore
                     int splitPos = curPageStop;
@@ -625,7 +631,7 @@ struct TypesetBookImpl::Typesetter : BookTypesetter
 
 BookTypesetter::Ptr BookTypesetter::create (int pageWidth, int pageHeight)
 {
-    return boost::make_shared <TypesetBookImpl::Typesetter> (pageWidth, pageHeight);
+    return std::make_shared <TypesetBookImpl::Typesetter> (pageWidth, pageHeight);
 }
 
 namespace
@@ -886,7 +892,7 @@ protected:
 public:
 
     typedef TypesetBookImpl::StyleImpl Style;
-    typedef std::map <TextFormat::Id, TextFormat*> ActiveTextFormats;
+    typedef std::map <TextFormat::Id, std::unique_ptr<TextFormat>> ActiveTextFormats;
 
     int mViewTop;
     int mViewBottom;
@@ -894,10 +900,10 @@ public:
     Style* mFocusItem;
     bool mItemActive;
     MyGUI::MouseButton mLastDown;
-    boost::function <void (intptr_t)> mLinkClicked;
+    std::function <void (intptr_t)> mLinkClicked;
 
 
-    boost::shared_ptr <TypesetBookImpl> mBook;
+    std::shared_ptr <TypesetBookImpl> mBook;
 
     MyGUI::ILayerNode* mNode;
     ActiveTextFormats mActiveTextFormats;
@@ -1031,7 +1037,7 @@ public:
 
     void showPage (TypesetBook::Ptr book, size_t newPage)
     {
-        boost::shared_ptr <TypesetBookImpl> newBook = boost::dynamic_pointer_cast <TypesetBookImpl> (book);
+        std::shared_ptr <TypesetBookImpl> newBook = std::dynamic_pointer_cast <TypesetBookImpl> (book);
 
         if (mBook != newBook)
         {
@@ -1042,12 +1048,12 @@ public:
             {
                 if (mNode != NULL)
                     i->second->destroyDrawItem (mNode);
-                delete i->second;
+                i->second.reset();
             }
 
             mActiveTextFormats.clear ();
 
-            if (newBook != NULL)
+            if (newBook != nullptr)
             {
                 createActiveFormats (newBook);
 
@@ -1109,18 +1115,18 @@ public:
 
             if (j == this_->mActiveTextFormats.end ())
             {
-                TextFormat * textFormat = new TextFormat (Font, this_);
+                std::unique_ptr<TextFormat> textFormat(new TextFormat (Font, this_));
 
                 textFormat->mTexture = Font->getTextureFont ();
 
-                j = this_->mActiveTextFormats.insert (std::make_pair (Font, textFormat)).first;
+                j = this_->mActiveTextFormats.insert (std::make_pair (Font, std::move(textFormat))).first;
             }
 
             j->second->mCountVertex += run.mPrintableChars * 6;
         }
     };
 
-    void createActiveFormats (boost::shared_ptr <TypesetBookImpl> newBook)
+    void createActiveFormats (std::shared_ptr <TypesetBookImpl> newBook)
     {
         newBook->visitRuns (0, 0x7FFFFFFF, CreateActiveFormat (this));
 
@@ -1182,6 +1188,9 @@ public:
             while (!stream.eof ())
             {
                 Utf8Stream::UnicodeChar code_point = stream.consume ();
+
+                if (ucsCarriageReturn (code_point))
+                    continue;
 
                 if (!ucsSpace (code_point))
                     glyphStream.emitGlyph (code_point);
@@ -1252,72 +1261,65 @@ class BookPageImpl : public BookPage
 MYGUI_RTTI_DERIVED(BookPage)
 public:
 
-    void showPage (TypesetBook::Ptr book, size_t page)
+    BookPageImpl()
+        : mPageDisplay(NULL)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-            pd->showPage (book, page);
-        else
-            throw std::runtime_error ("The main sub-widget for a BookPage must be a PageDisplay.");
     }
 
-    void adviseLinkClicked (boost::function <void (InteractiveId)> linkClicked)
+    void showPage (TypesetBook::Ptr book, size_t page)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->mLinkClicked = linkClicked;
-        }
+        mPageDisplay->showPage (book, page);
+    }
+
+    void adviseLinkClicked (std::function <void (InteractiveId)> linkClicked)
+    {
+        mPageDisplay->mLinkClicked = linkClicked;
     }
 
     void unadviseLinkClicked ()
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->mLinkClicked = boost::function <void (InteractiveId)> ();
-        }
+        mPageDisplay->mLinkClicked = std::function <void (InteractiveId)> ();
     }
 
 protected:
+
+    virtual void initialiseOverride()
+    {
+        Base::initialiseOverride();
+
+        if (getSubWidgetText())
+        {
+            mPageDisplay = getSubWidgetText()->castType<PageDisplay>();
+        }
+        else
+        {
+            throw std::runtime_error("BookPage unable to find page display sub widget");
+        }
+    }
+
     void onMouseLostFocus(Widget* _new)
     {
         // NOTE: MyGUI also fires eventMouseLostFocus for widgets that are about to be destroyed (if they had focus).
         // Child widgets may already be destroyed! So be careful.
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseLostFocus ();
-        }
-        else
-            Widget::onMouseLostFocus (_new);
+        mPageDisplay->onMouseLostFocus ();
     }
 
     void onMouseMove(int left, int top)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseMove (left, top);
-        }
-        else
-            Widget::onMouseMove (left, top);
+        mPageDisplay->onMouseMove (left, top);
     }
 
     void onMouseButtonPressed (int left, int top, MyGUI::MouseButton id)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseButtonPressed (left, top, id);
-        }
-        else
-            Widget::onMouseButtonPressed (left, top, id);
+        mPageDisplay->onMouseButtonPressed (left, top, id);
     }
 
     void onMouseButtonReleased(int left, int top, MyGUI::MouseButton id)
     {
-        if (PageDisplay* pd = dynamic_cast <PageDisplay*> (getSubWidgetText ()))
-        {
-            pd->onMouseButtonReleased (left, top, id);
-        }
-        else
-            Widget::onMouseButtonReleased (left, top, id);
+        mPageDisplay->onMouseButtonReleased (left, top, id);
     }
+
+    PageDisplay* mPageDisplay;
 };
 
 void BookPage::registerMyGUIComponents ()
@@ -1331,6 +1333,11 @@ void BookPage::registerMyGUIComponents ()
 static bool ucsLineBreak (int codePoint)
 {
     return codePoint == '\n';
+}
+
+static bool ucsCarriageReturn (int codePoint)
+{
+    return codePoint == '\r';
 }
 
 static bool ucsSpace (int codePoint)

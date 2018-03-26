@@ -24,7 +24,7 @@
 
 namespace MWWorld
 {
-    std::map<std::string, boost::shared_ptr<Class> > Class::sClasses;
+    std::map<std::string, std::shared_ptr<Class> > Class::sClasses;
 
     Class::Class() {}
 
@@ -98,19 +98,24 @@ namespace MWWorld
         throw std::runtime_error("class cannot block");
     }
 
-    void Class::onHit(const Ptr& ptr, float damage, bool ishealth, const Ptr& object, const Ptr& attacker, bool successful) const
+    bool Class::canBeActivated(const Ptr& ptr) const
+    {
+        return !getName(ptr).empty();
+    }
+
+    void Class::onHit(const Ptr& ptr, float damage, bool ishealth, const Ptr& object, const Ptr& attacker, const osg::Vec3f& hitPosition, bool successful) const
     {
         throw std::runtime_error("class cannot be hit");
     }
 
-    boost::shared_ptr<Action> Class::activate (const Ptr& ptr, const Ptr& actor) const
+    std::shared_ptr<Action> Class::activate (const Ptr& ptr, const Ptr& actor) const
     {
-        return boost::shared_ptr<Action> (new NullAction);
+        return std::shared_ptr<Action> (new NullAction);
     }
 
-    boost::shared_ptr<Action> Class::use (const Ptr& ptr) const
+    std::shared_ptr<Action> Class::use (const Ptr& ptr) const
     {
-        return boost::shared_ptr<Action> (new NullAction);
+        return std::shared_ptr<Action> (new NullAction);
     }
 
     ContainerStore& Class::getContainerStore (const Ptr& ptr) const
@@ -228,7 +233,7 @@ namespace MWWorld
         if (key.empty())
             throw std::logic_error ("Class::get(): attempting to get an empty key");
 
-        std::map<std::string, boost::shared_ptr<Class> >::const_iterator iter = sClasses.find (key);
+        std::map<std::string, std::shared_ptr<Class> >::const_iterator iter = sClasses.find (key);
 
         if (iter==sClasses.end())
             throw std::logic_error ("Class::get(): unknown class key: " + key);
@@ -241,7 +246,7 @@ namespace MWWorld
         throw std::runtime_error ("class does not support persistence");
     }
 
-    void Class::registerClass(const std::string& key,  boost::shared_ptr<Class> instance)
+    void Class::registerClass(const std::string& key,  std::shared_ptr<Class> instance)
     {
         instance->mTypeName = key;
         sClasses.insert(std::make_pair(key, instance));
@@ -272,6 +277,14 @@ namespace MWWorld
         throw std::runtime_error ("class does not have a tool tip");
     }
 
+    bool Class::showsInInventory (const ConstPtr& ptr) const
+    {
+        // NOTE: Don't show WerewolfRobe objects in the inventory, or allow them to be taken.
+        // Vanilla likely uses a hack like this since there's no other way to prevent it from
+        // being shown or taken.
+        return (ptr.getCellRef().getRefId() != "werewolfrobe");
+    }
+
     bool Class::hasToolTip (const ConstPtr& ptr) const
     {
         return false;
@@ -289,6 +302,11 @@ namespace MWWorld
     std::string Class::getModel(const MWWorld::ConstPtr &ptr) const
     {
         return "";
+    }
+
+    bool Class::useAnim() const
+    {
+        return false;
     }
 
     void Class::getModelsToPreload(const Ptr &ptr, std::vector<std::string> &models) const
@@ -312,23 +330,23 @@ namespace MWWorld
     {
     }
 
-    boost::shared_ptr<Action> Class::defaultItemActivate(const Ptr &ptr, const Ptr &actor) const
+    std::shared_ptr<Action> Class::defaultItemActivate(const Ptr &ptr, const Ptr &actor) const
     {
         if(!MWBase::Environment::get().getWindowManager()->isAllowed(MWGui::GW_Inventory))
-            return boost::shared_ptr<Action>(new NullAction());
+            return std::shared_ptr<Action>(new NullAction());
 
         if(actor.getClass().isNpc() && actor.getClass().getNpcStats(actor).isWerewolf())
         {
             const MWWorld::ESMStore &store = MWBase::Environment::get().getWorld()->getStore();
             const ESM::Sound *sound = store.get<ESM::Sound>().searchRandom("WolfItem");
 
-            boost::shared_ptr<MWWorld::Action> action(new MWWorld::FailedAction("#{sWerewolfRefusal}"));
+            std::shared_ptr<MWWorld::Action> action(new MWWorld::FailedAction("#{sWerewolfRefusal}"));
             if(sound) action->setSound(sound->mId);
 
             return action;
         }
 
-        boost::shared_ptr<MWWorld::Action> action(new ActionTake(ptr));
+        std::shared_ptr<MWWorld::Action> action(new ActionTake(ptr));
         action->setSound(getUpSoundId(ptr));
 
         return action;
@@ -380,7 +398,26 @@ namespace MWWorld
 
     bool Class::isPureWaterCreature(const MWWorld::Ptr& ptr) const
     {
-        return canSwim(ptr) && !canWalk(ptr);
+        return canSwim(ptr)
+                && !isBipedal(ptr)
+                && !canFly(ptr)
+                && !canWalk(ptr);
+    }
+
+    bool Class::isPureFlyingCreature(const Ptr& ptr) const
+    {
+        return canFly(ptr)
+                && !isBipedal(ptr)
+                && !canSwim(ptr)
+                && !canWalk(ptr);
+    }
+
+    bool Class::isPureLandCreature(const Ptr& ptr) const
+    {
+        return canWalk(ptr)
+                && !isBipedal(ptr)
+                && !canFly(ptr)
+                && !canSwim(ptr);
     }
 
     bool Class::isMobile(const MWWorld::Ptr& ptr) const
@@ -450,7 +487,7 @@ namespace MWWorld
         return -1;
     }
 
-    int Class::getEffectiveArmorRating(const ConstPtr &armor, const Ptr &actor) const
+    float Class::getEffectiveArmorRating(const ConstPtr &armor, const Ptr &actor) const
     {
         throw std::runtime_error("class does not support armor ratings");
     }

@@ -56,8 +56,8 @@ WeaponAnimation::~WeaponAnimation()
 
 void WeaponAnimation::attachArrow(MWWorld::Ptr actor)
 {
-    MWWorld::InventoryStore& inv = actor.getClass().getInventoryStore(actor);
-    MWWorld::ContainerStoreIterator weaponSlot = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+    const MWWorld::InventoryStore& inv = actor.getClass().getInventoryStore(actor);
+    MWWorld::ConstContainerStoreIterator weaponSlot = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
     if (weaponSlot == inv.end())
         return;
     if (weaponSlot->getTypeName() != typeid(ESM::Weapon).name())
@@ -79,7 +79,7 @@ void WeaponAnimation::attachArrow(MWWorld::Ptr actor)
         if (!parent)
             return;
 
-        MWWorld::ContainerStoreIterator ammo = inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition);
+        MWWorld::ConstContainerStoreIterator ammo = inv.getSlot(MWWorld::InventoryStore::Slot_Ammunition);
         if (ammo == inv.end())
             return;
         std::string model = ammo->getClass().getModel(*ammo);
@@ -182,23 +182,30 @@ void WeaponAnimation::deleteControllers()
 
 void WeaponAnimation::configureControllers(float characterPitchRadians)
 {
-    if (!mSpineControllers[0])
-        return;
-
     if (mPitchFactor == 0.f || characterPitchRadians == 0.f)
     {
-        for (int i=0; i<2; ++i)
-            mSpineControllers[i]->setEnabled(false);
+        setControllerEnabled(false);
         return;
     }
 
     float pitch = characterPitchRadians * mPitchFactor;
     osg::Quat rotate (pitch/2, osg::Vec3f(-1,0,0));
+    setControllerRotate(rotate);
+    setControllerEnabled(true);
+}
+
+void WeaponAnimation::setControllerRotate(const osg::Quat& rotate)
+{
     for (int i=0; i<2; ++i)
-    {
-        mSpineControllers[i]->setRotate(rotate);
-        mSpineControllers[i]->setEnabled(true);
-    }
+        if (mSpineControllers[i])
+            mSpineControllers[i]->setRotate(rotate);
+}
+
+void WeaponAnimation::setControllerEnabled(bool enabled)
+{
+    for (int i=0; i<2; ++i)
+        if (mSpineControllers[i])
+            mSpineControllers[i]->setEnabled(enabled);
 }
 
 }

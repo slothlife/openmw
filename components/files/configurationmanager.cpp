@@ -1,13 +1,12 @@
 #include "configurationmanager.hpp"
 
-#include <string>
 #include <iostream>
-#include <algorithm>
 
-#include <boost/bind.hpp>
+#include <components/files/escape.hpp>
+
 #include <boost/algorithm/string/erase.hpp>
+#include <boost/algorithm/string/replace.hpp>
 #include <boost/filesystem/fstream.hpp>
-
 /**
  * \namespace Files
  */
@@ -22,7 +21,6 @@ static const char* const applicationName = "OpenMW";
 static const char* const applicationName = "openmw";
 #endif
 
-const char* const mwToken = "?mw?";
 const char* const localToken = "?local?";
 const char* const userDataToken = "?userdata?";
 const char* const globalToken = "?global?";
@@ -45,7 +43,6 @@ ConfigurationManager::~ConfigurationManager()
 
 void ConfigurationManager::setupTokensMapping()
 {
-    mTokensMapping.insert(std::make_pair(mwToken, &FixedPath<>::getInstallPath));
     mTokensMapping.insert(std::make_pair(localToken, &FixedPath<>::getLocalPath));
     mTokensMapping.insert(std::make_pair(userDataToken, &FixedPath<>::getUserDataPath));
     mTokensMapping.insert(std::make_pair(globalToken, &FixedPath<>::getGlobalDataPath));
@@ -78,8 +75,6 @@ void ConfigurationManager::processPaths(Files::PathContainer& dataDirs, bool cre
     for (Files::PathContainer::iterator it = dataDirs.begin(); it != dataDirs.end(); ++it)
     {
         path = it->string();
-        boost::erase_all(path, "\"");
-        *it = boost::filesystem::path(path);
 
         // Check if path contains a token
         if (!path.empty() && *path.begin() == '?')
@@ -127,7 +122,7 @@ void ConfigurationManager::processPaths(Files::PathContainer& dataDirs, bool cre
     }
 
     dataDirs.erase(std::remove_if(dataDirs.begin(), dataDirs.end(),
-        boost::bind(&boost::filesystem::path::empty, _1)), dataDirs.end());
+        std::bind(&boost::filesystem::path::empty, std::placeholders::_1)), dataDirs.end());
 }
 
 bool ConfigurationManager::loadConfig(const boost::filesystem::path& path,
@@ -141,8 +136,11 @@ bool ConfigurationManager::loadConfig(const boost::filesystem::path& path,
         if (!mSilent)
             std::cout << "Loading config file: " << cfgFile.string() << "... ";
 
-        boost::filesystem::ifstream configFileStream(cfgFile);
-        if (configFileStream.is_open())
+        boost::filesystem::ifstream configFileStreamUnfiltered(cfgFile);
+        boost::iostreams::filtering_istream configFileStream;
+        configFileStream.push(escape_hash_filter());
+        configFileStream.push(configFileStreamUnfiltered);
+        if (configFileStreamUnfiltered.is_open())
         {
             boost::program_options::store(boost::program_options::parse_config_file(
                 configFileStream, description, true), variables);

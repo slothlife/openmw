@@ -11,7 +11,6 @@
 #include <QMessageBox>
 #include <QModelIndex>
 #include <QDir>
-#include <assert.h>
 
 ContentSelectorView::ContentSelector::ContentSelector(QWidget *parent) :
     QObject(parent)
@@ -192,8 +191,8 @@ void ContentSelectorView::ContentSelector::setGameFileSelected(int index, bool s
     const ContentSelectorModel::EsmFile* file = mContentModel->item(fileName);
     if (file != NULL)
     {
-        QModelIndex index(mContentModel->indexFromItem(file));
-        mContentModel->setData(index, selected, Qt::UserRole + 1);
+        QModelIndex index2(mContentModel->indexFromItem(file));
+        mContentModel->setData(index2, selected, Qt::UserRole + 1);
     }
 }
 

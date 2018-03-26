@@ -140,30 +140,9 @@ namespace Compiler
 
         if (mState==MessageState || mState==MessageCommaState)
         {
-            std::string arguments;
-
-            for (std::size_t i=0; i<name.size(); ++i)
-            {
-                if (name[i]=='%')
-                {
-                    ++i;
-                    if (i<name.size())
-                    {
-                        if (name[i]=='G' || name[i]=='g')
-                        {
-                            arguments += "l";
-                        }
-                        else if (name[i]=='S' || name[i]=='s')
-                        {
-                            arguments += 'S';
-                        }
-                        else if (name[i]=='.' || name[i]=='f')
-                        {
-                            arguments += 'f';
-                        }
-                    }
-                }
-            }
+            GetArgumentsFromMessageFormat processor;
+            processor.process(name);
+            std::string arguments = processor.getArguments();
 
             if (!arguments.empty())
             {
@@ -315,7 +294,7 @@ namespace Compiler
                     {
                         // workaround for broken positioncell instructions.
                         /// \todo add option to disable this
-                        std::auto_ptr<ErrorDowngrade> errorDowngrade (0);
+                        std::unique_ptr<ErrorDowngrade> errorDowngrade (nullptr);
                         if (Misc::StringUtils::lowerCase (loc.mLiteral)=="positioncell")
                             errorDowngrade.reset (new ErrorDowngrade (getErrorHandler()));
 
@@ -577,4 +556,23 @@ namespace Compiler
         mName.clear();
         mExplicit.clear();
     }
+
+    void GetArgumentsFromMessageFormat::visitedPlaceholder(Placeholder placeholder, char /*padding*/, int /*width*/, int /*precision*/)
+    {
+        switch (placeholder)
+        {
+            case StringPlaceholder:
+                mArguments += 'S';
+                break;
+            case IntegerPlaceholder:
+                mArguments += 'l';
+                break;
+            case FloatPlaceholder:
+                mArguments += 'f';
+                break;
+            default:
+                break;
+        }
+    }
+
 }

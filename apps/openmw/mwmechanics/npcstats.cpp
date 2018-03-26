@@ -1,15 +1,9 @@
 #include "npcstats.hpp"
 
-#include <cmath>
-#include <stdexcept>
-#include <vector>
-#include <algorithm>
-
 #include <iomanip>
 
 #include <boost/format.hpp>
 
-#include <components/esm/loadskil.hpp>
 #include <components/esm/loadclas.hpp>
 #include <components/esm/loadgmst.hpp>
 #include <components/esm/loadfact.hpp>
@@ -21,7 +15,6 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/soundmanager.hpp"
 
 MWMechanics::NpcStats::NpcStats()
     : mDisposition (0)
@@ -30,10 +23,11 @@ MWMechanics::NpcStats::NpcStats()
 , mBounty(0)
 , mWerewolfKills (0)
 , mLevelProgress(0)
-, mTimeToStartDrowning(20.0)
+, mTimeToStartDrowning(-1.0) // set breath to special value, it will be replaced during actor update
     , mIsWerewolf(false)
 {
     mSkillIncreases.resize (ESM::Attribute::Length, 0);
+    mSpecIncreases.resize(3, 0);
 }
 
 int MWMechanics::NpcStats::getBaseDisposition() const
@@ -82,8 +76,8 @@ void MWMechanics::NpcStats::raiseRank(const std::string &faction)
     if (it != mFactionRank.end())
     {
         // Does the next rank exist?
-        const ESM::Faction* faction = MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(lower);
-        if (it->second+1 < 10 && !faction->mRanks[it->second+1].empty())
+        const ESM::Faction* factionPtr = MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(lower);
+        if (it->second+1 < 10 && !factionPtr->mRanks[it->second+1].empty())
             it->second += 1;
     }
 }
@@ -255,9 +249,11 @@ void MWMechanics::NpcStats::increaseSkill(int skillIndex, const ESM::Class &clas
         MWBase::Environment::get().getWorld ()->getStore ().get<ESM::Skill>().find(skillIndex);
     mSkillIncreases[skill->mData.mAttribute] += increase;
 
+    mSpecIncreases[skill->mData.mSpecialization] += gmst.find("iLevelupSpecialization")->getInt();
+
     // Play sound & skill progress notification
     /// \todo check if character is the player, if levelling is ever implemented for NPCs
-    MWBase::Environment::get().getSoundManager ()->playSound ("skillraise", 1, 1);
+    MWBase::Environment::get().getWindowManager()->playSound("skillraise");
 
     std::stringstream message;
     message << boost::format(MWBase::Environment::get().getWindowManager ()->getGameSettingString ("sNotifyMessage39", ""))
@@ -326,6 +322,11 @@ int MWMechanics::NpcStats::getLevelupAttributeMultiplier(int attribute) const
     return MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>().find(gmst.str())->getInt();
 }
 
+int MWMechanics::NpcStats::getSkillIncreasesForSpecialization(int spec) const
+{
+    return mSpecIncreases[spec];
+}
+
 void MWMechanics::NpcStats::flagAsUsed (const std::string& id)
 {
     mUsedIds.insert (id);
@@ -379,7 +380,7 @@ bool MWMechanics::NpcStats::hasSkillsForRank (const std::string& factionId, int 
     for (int i=0; i<7; ++i)
     {
         if (faction.mData.mSkills[i] != -1)
-            skills.push_back (static_cast<int> (getSkill (faction.mData.mSkills[i]).getModified()));
+            skills.push_back (static_cast<int> (getSkill (faction.mData.mSkills[i]).getBase()));
     }
 
     if (skills.empty())
@@ -469,6 +470,9 @@ void MWMechanics::NpcStats::writeState (ESM::NpcStats& state) const
     for (int i=0; i<ESM::Attribute::Length; ++i)
         state.mSkillIncrease[i] = mSkillIncreases[i];
 
+    for (int i=0; i<3; ++i)
+        state.mSpecIncreases[i] = mSpecIncreases[i];
+
     std::copy (mUsedIds.begin(), mUsedIds.end(), std::back_inserter (state.mUsedIds));
 
     state.mTimeToStartDrowning = mTimeToStartDrowning;
@@ -507,6 +511,9 @@ void MWMechanics::NpcStats::readState (const ESM::NpcStats& state)
 
     for (int i=0; i<ESM::Attribute::Length; ++i)
         mSkillIncreases[i] = state.mSkillIncrease[i];
+
+    for (int i=0; i<3; ++i)
+        mSpecIncreases[i] = state.mSpecIncreases[i];
 
     for (std::vector<std::string>::const_iterator iter (state.mUsedIds.begin());
         iter!=state.mUsedIds.end(); ++iter)

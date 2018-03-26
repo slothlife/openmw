@@ -3,6 +3,7 @@
 #include <components/esm/loadlock.hpp>
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwbase/windowmanager.hpp"
 
@@ -52,7 +53,7 @@ namespace MWClass
         return ref->mBase->mName;
     }
 
-    boost::shared_ptr<MWWorld::Action> Lockpick::activate (const MWWorld::Ptr& ptr,
+    std::shared_ptr<MWWorld::Action> Lockpick::activate (const MWWorld::Ptr& ptr,
         const MWWorld::Ptr& actor) const
     {
         return defaultItemActivate(ptr, actor);
@@ -83,7 +84,7 @@ namespace MWClass
 
     void Lockpick::registerSelf()
     {
-        boost::shared_ptr<Class> instance (new Lockpick);
+        std::shared_ptr<Class> instance (new Lockpick);
 
         registerClass (typeid (ESM::Lockpick).name(), instance);
     }
@@ -126,7 +127,7 @@ namespace MWClass
 
         text += "\n#{sUses}: " + MWGui::ToolTips::toString(remainingUses);
         text += "\n#{sQuality}: " + MWGui::ToolTips::toString(ref->mBase->mData.mQuality);
-        text += "\n#{sWeight}: " + MWGui::ToolTips::toString(ref->mBase->mData.mWeight);
+        text += MWGui::ToolTips::getWeightString(ref->mBase->mData.mWeight, "#{sWeight}");
         text += MWGui::ToolTips::getValueString(ref->mBase->mData.mValue, "#{sValue}");
 
         if (MWBase::Environment::get().getWindowManager()->getFullHelp()) {
@@ -139,9 +140,9 @@ namespace MWClass
         return info;
     }
 
-    boost::shared_ptr<MWWorld::Action> Lockpick::use (const MWWorld::Ptr& ptr) const
+    std::shared_ptr<MWWorld::Action> Lockpick::use (const MWWorld::Ptr& ptr) const
     {
-        boost::shared_ptr<MWWorld::Action> action(new MWWorld::ActionEquip(ptr));
+        std::shared_ptr<MWWorld::Action> action(new MWWorld::ActionEquip(ptr));
 
         action->setSound(getUpSoundId(ptr));
 
@@ -153,6 +154,16 @@ namespace MWClass
         const MWWorld::LiveCellRef<ESM::Lockpick> *ref = ptr.get<ESM::Lockpick>();
 
         return MWWorld::Ptr(cell.insert(ref), &cell);
+    }
+
+    std::pair<int, std::string> Lockpick::canBeEquipped(const MWWorld::ConstPtr &ptr, const MWWorld::Ptr &npc) const
+    {
+        // Do not allow equip tools from inventory during attack
+        if (MWBase::Environment::get().getMechanicsManager()->isAttackingOrSpell(npc)
+            && MWBase::Environment::get().getWindowManager()->isGuiMode())
+            return std::make_pair(0, "#{sCantEquipWeapWarning}");
+
+        return std::make_pair(1, "");
     }
 
     bool Lockpick::canSell (const MWWorld::ConstPtr& item, int npcServices) const

@@ -13,13 +13,18 @@ namespace SceneUtil
     /// @brief Mesh skinning implementation.
     /// @note A RigGeometry may be attached directly to a Skeleton, or somewhere below a Skeleton.
     /// Note though that the RigGeometry ignores any transforms below the Skeleton, so the attachment point is not that important.
-    class RigGeometry : public osg::Geometry
+    /// @note The internal Geometry used for rendering is double buffered, this allows updates to be done in a thread safe way while
+    /// not compromising rendering performance. This is crucial when using osg's default threading model of DrawThreadPerContext.
+    class RigGeometry : public osg::Drawable
     {
     public:
         RigGeometry();
         RigGeometry(const RigGeometry& copy, const osg::CopyOp& copyop);
 
         META_Object(SceneUtil, RigGeometry)
+
+        // At this point compileGLObjects() remains unimplemented, hard to avoid race conditions
+        // and there is limited value in compiling anyway since the data will change again for the next frame
 
         struct BoneInfluence
         {
@@ -36,20 +41,28 @@ namespace SceneUtil
 
         void setInfluenceMap(osg::ref_ptr<InfluenceMap> influenceMap);
 
+        /// Initialize this geometry from the source geometry.
+        /// @note The source geometry will not be modified.
         void setSourceGeometry(osg::ref_ptr<osg::Geometry> sourceGeom);
 
-        // Called automatically by our CullCallback
-        void update(osg::NodeVisitor* nv);
+        osg::ref_ptr<osg::Geometry> getSourceGeometry();
 
-        // Called automatically by our UpdateCallback
-        void updateBounds(osg::NodeVisitor* nv);
+        virtual void accept(osg::NodeVisitor &nv);
+        virtual bool supports(const osg::PrimitiveFunctor&) const { return true; }
+        virtual void accept(osg::PrimitiveFunctor&) const;
 
     private:
+        void cull(osg::NodeVisitor* nv);
+        void updateBounds(osg::NodeVisitor* nv);
+
+        osg::ref_ptr<osg::Geometry> mGeometry[2];
+        osg::Geometry* getGeometry(unsigned int frame) const;
+
         osg::ref_ptr<osg::Geometry> mSourceGeometry;
+        osg::ref_ptr<const osg::Vec4Array> mSourceTangents;
         Skeleton* mSkeleton;
 
-        osg::NodePath mSkelToGeomPath;
-        osg::Matrixf mGeomToSkelMatrix;
+        osg::ref_ptr<osg::RefMatrix> mGeomToSkelMatrix;
 
         osg::ref_ptr<InfluenceMap> mInfluenceMap;
 
@@ -72,7 +85,7 @@ namespace SceneUtil
 
         bool initFromParentSkeleton(osg::NodeVisitor* nv);
 
-        void updateGeomToSkelMatrix(osg::NodeVisitor* nv);
+        void updateGeomToSkelMatrix(const osg::NodePath& nodePath);
     };
 
 }

@@ -51,7 +51,7 @@ namespace MWClass
         return ref->mBase->mName;
     }
 
-    boost::shared_ptr<MWWorld::Action> Apparatus::activate (const MWWorld::Ptr& ptr,
+    std::shared_ptr<MWWorld::Action> Apparatus::activate (const MWWorld::Ptr& ptr,
         const MWWorld::Ptr& actor) const
     {
         return defaultItemActivate(ptr, actor);
@@ -73,7 +73,7 @@ namespace MWClass
 
     void Apparatus::registerSelf()
     {
-        boost::shared_ptr<Class> instance (new Apparatus);
+        std::shared_ptr<Class> instance (new Apparatus);
 
         registerClass (typeid (ESM::Apparatus).name(), instance);
     }
@@ -112,7 +112,7 @@ namespace MWClass
 
         std::string text;
         text += "\n#{sQuality}: " + MWGui::ToolTips::toString(ref->mBase->mData.mQuality);
-        text += "\n#{sWeight}: " + MWGui::ToolTips::toString(ref->mBase->mData.mWeight);
+        text += MWGui::ToolTips::getWeightString(ref->mBase->mData.mWeight, "#{sWeight}");
         text += MWGui::ToolTips::getValueString(ref->mBase->mData.mValue, "#{sValue}");
 
         if (MWBase::Environment::get().getWindowManager()->getFullHelp()) {
@@ -125,9 +125,9 @@ namespace MWClass
     }
 
 
-    boost::shared_ptr<MWWorld::Action> Apparatus::use (const MWWorld::Ptr& ptr) const
+    std::shared_ptr<MWWorld::Action> Apparatus::use (const MWWorld::Ptr& ptr) const
     {
-        return boost::shared_ptr<MWWorld::Action>(new MWWorld::ActionAlchemy());
+        return std::shared_ptr<MWWorld::Action>(new MWWorld::ActionAlchemy());
     }
 
     MWWorld::Ptr Apparatus::copyToCellImpl(const MWWorld::ConstPtr &ptr, MWWorld::CellStore &cell) const

@@ -40,11 +40,20 @@ void CSVWorld::GenericCreator::insertAtBeginning (QWidget *widget, bool stretche
 void CSVWorld::GenericCreator::insertBeforeButtons (QWidget *widget, bool stretched)
 {
     mLayout->insertWidget (mLayout->count()-2, widget, stretched ? 1 : 0);
+
+    // Reset tab order relative to buttons.
+    setTabOrder(widget, mCreate);
+    setTabOrder(mCreate, mCancel);
 }
 
 std::string CSVWorld::GenericCreator::getId() const
 {
     return mId->text().toUtf8().constData();
+}
+
+std::string CSVWorld::GenericCreator::getClonedId() const
+{
+    return mClonedId;
 }
 
 std::string CSVWorld::GenericCreator::getIdValidatorResult() const
@@ -59,7 +68,7 @@ std::string CSVWorld::GenericCreator::getIdValidatorResult() const
 
 void CSVWorld::GenericCreator::configureCreateCommand (CSMWorld::CreateCommand& command) const {}
 
-void CSVWorld::GenericCreator::pushCommand (std::auto_ptr<CSMWorld::CreateCommand> command,
+void CSVWorld::GenericCreator::pushCommand (std::unique_ptr<CSMWorld::CreateCommand> command,
     const std::string& id)
 {
     mUndoStack.push (command.release());
@@ -161,15 +170,16 @@ CSVWorld::GenericCreator::GenericCreator (CSMWorld::Data& data, QUndoStack& undo
     mCreate = new QPushButton ("Create");
     mLayout->addWidget (mCreate);
 
-    QPushButton *cancelButton = new QPushButton ("Cancel");
-    mLayout->addWidget (cancelButton);
+    mCancel = new QPushButton("Cancel");
+    mLayout->addWidget(mCancel);
 
     setLayout (mLayout);
 
-    connect (cancelButton, SIGNAL (clicked (bool)), this, SIGNAL (done()));
+    connect (mCancel, SIGNAL (clicked (bool)), this, SIGNAL (done()));
     connect (mCreate, SIGNAL (clicked (bool)), this, SLOT (create()));
 
     connect (mId, SIGNAL (textChanged (const QString&)), this, SLOT (textChanged (const QString&)));
+    connect (mId, SIGNAL (returnPressed()), this, SLOT (inputReturnPressed()));
 
     connect (&mData, SIGNAL (idListChanged()), this, SLOT (dataIdListChanged()));
 }
@@ -205,13 +215,21 @@ void CSVWorld::GenericCreator::textChanged (const QString& text)
     update();
 }
 
+void CSVWorld::GenericCreator::inputReturnPressed()
+{
+    if (mCreate->isEnabled())
+    {
+        create();
+    }
+}
+
 void CSVWorld::GenericCreator::create()
 {
     if (!mLocked)
     {
         std::string id = getId();
 
-        std::auto_ptr<CSMWorld::CreateCommand> command;
+        std::unique_ptr<CSMWorld::CreateCommand> command;
 
         if (mCloneMode)
         {
@@ -226,7 +244,7 @@ void CSVWorld::GenericCreator::create()
         }
 
         configureCreateCommand (*command);
-        pushCommand (command, id);
+        pushCommand (std::move(command), id);
 
         emit done();
         emit requestFocus(id);
@@ -239,6 +257,22 @@ void CSVWorld::GenericCreator::cloneMode(const std::string& originId,
     mCloneMode = true;
     mClonedId = originId;
     mClonedType = type;
+}
+
+void CSVWorld::GenericCreator::touch(const std::vector<CSMWorld::UniversalId>& ids)
+{
+    // Combine multiple touch commands into one "macro" command
+    mUndoStack.beginMacro("Touch Records");
+
+    CSMWorld::IdTable& table = dynamic_cast<CSMWorld::IdTable&>(*mData.getTableModel(mListId));
+    for (const CSMWorld::UniversalId& uid : ids)
+    {
+        CSMWorld::TouchCommand* touchCmd = new CSMWorld::TouchCommand(table, uid.getId());
+        mUndoStack.push(touchCmd);
+    }
+
+    // Execute
+    mUndoStack.endMacro();
 }
 
 void CSVWorld::GenericCreator::toggleWidgets(bool active)

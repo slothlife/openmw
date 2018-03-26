@@ -57,7 +57,7 @@ namespace MWClass
         return ref->mBase->mName;
     }
 
-    boost::shared_ptr<MWWorld::Action> Armor::activate (const MWWorld::Ptr& ptr,
+    std::shared_ptr<MWWorld::Action> Armor::activate (const MWWorld::Ptr& ptr,
         const MWWorld::Ptr& actor) const
     {
         return defaultItemActivate(ptr, actor);
@@ -146,9 +146,6 @@ namespace MWClass
 
         float epsilon = 0.0005f;
 
-        if (ref->mBase->mData.mWeight == 0)
-            return ESM::Skill::Unarmored;
-
         if (ref->mBase->mData.mWeight <= iWeight * gmst.find ("fLightMaxMod")->getFloat() + epsilon)
             return ESM::Skill::LightArmor;
 
@@ -168,7 +165,7 @@ namespace MWClass
 
     void Armor::registerSelf()
     {
-        boost::shared_ptr<Class> instance (new Armor);
+        std::shared_ptr<Class> instance (new Armor);
 
         registerClass (typeid (ESM::Armor).name(), instance);
     }
@@ -220,23 +217,30 @@ namespace MWClass
         std::string text;
 
         // get armor type string (light/medium/heavy)
-        int armorType = getEquipmentSkill(ptr);
         std::string typeText;
-        if (armorType == ESM::Skill::LightArmor)
-            typeText = "#{sLight}";
-        else if (armorType == ESM::Skill::MediumArmor)
-            typeText = "#{sMedium}";
+        if (ref->mBase->mData.mWeight == 0)
+            typeText = "";
         else
-            typeText = "#{sHeavy}";
+        {
+            int armorType = getEquipmentSkill(ptr);       
+            if (armorType == ESM::Skill::LightArmor)
+                typeText = "#{sLight}";
+            else if (armorType == ESM::Skill::MediumArmor)
+                typeText = "#{sMedium}";
+            else
+                typeText = "#{sHeavy}";
+        }
 
-        text += "\n#{sArmorRating}: " + MWGui::ToolTips::toString(getEffectiveArmorRating(ptr,
-            MWMechanics::getPlayer()));
+        text += "\n#{sArmorRating}: " + MWGui::ToolTips::toString(static_cast<int>(getEffectiveArmorRating(ptr,
+            MWMechanics::getPlayer())));
 
         int remainingHealth = getItemHealth(ptr);
         text += "\n#{sCondition}: " + MWGui::ToolTips::toString(remainingHealth) + "/"
                 + MWGui::ToolTips::toString(ref->mBase->mData.mHealth);
 
-        text += "\n#{sWeight}: " + MWGui::ToolTips::toString(ref->mBase->mData.mWeight) + " (" + typeText + ")";
+        if (typeText != "")
+            text += "\n#{sWeight}: " + MWGui::ToolTips::toString(ref->mBase->mData.mWeight) + " (" + typeText + ")";
+
         text += MWGui::ToolTips::getValueString(ref->mBase->mData.mValue, "#{sValue}");
 
         if (MWBase::Environment::get().getWindowManager()->getFullHelp()) {
@@ -273,7 +277,7 @@ namespace MWClass
         return record->mId;
     }
 
-    int Armor::getEffectiveArmorRating(const MWWorld::ConstPtr &ptr, const MWWorld::Ptr &actor) const
+    float Armor::getEffectiveArmorRating(const MWWorld::ConstPtr &ptr, const MWWorld::Ptr &actor) const
     {
         const MWWorld::LiveCellRef<ESM::Armor> *ref = ptr.get<ESM::Armor>();
 
@@ -286,12 +290,12 @@ namespace MWClass
         if(ref->mBase->mData.mWeight == 0)
             return ref->mBase->mData.mArmor;
         else
-            return ref->mBase->mData.mArmor * armorSkill / iBaseArmorSkill;
+            return ref->mBase->mData.mArmor * armorSkill / static_cast<float>(iBaseArmorSkill);
     }
 
     std::pair<int, std::string> Armor::canBeEquipped(const MWWorld::ConstPtr &ptr, const MWWorld::Ptr &npc) const
     {
-        MWWorld::InventoryStore& invStore = npc.getClass().getInventoryStore(npc);
+        const MWWorld::InventoryStore& invStore = npc.getClass().getInventoryStore(npc);
 
         if (ptr.getCellRef().getCharge() == 0)
             return std::make_pair(0, "#{sInventoryMessage1}");
@@ -328,7 +332,7 @@ namespace MWClass
             // If equipping a shield, check if there's a twohanded weapon conflicting with it
             if(*slot == MWWorld::InventoryStore::Slot_CarriedLeft)
             {
-                MWWorld::ContainerStoreIterator weapon = invStore.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
+                MWWorld::ConstContainerStoreIterator weapon = invStore.getSlot(MWWorld::InventoryStore::Slot_CarriedRight);
 
                 if(weapon == invStore.end())
                     return std::make_pair(1,"");
@@ -350,9 +354,9 @@ namespace MWClass
         return std::make_pair(1,"");
     }
 
-    boost::shared_ptr<MWWorld::Action> Armor::use (const MWWorld::Ptr& ptr) const
+    std::shared_ptr<MWWorld::Action> Armor::use (const MWWorld::Ptr& ptr) const
     {
-        boost::shared_ptr<MWWorld::Action> action(new MWWorld::ActionEquip(ptr));
+        std::shared_ptr<MWWorld::Action> action(new MWWorld::ActionEquip(ptr));
 
         action->setSound(getUpSoundId(ptr));
 

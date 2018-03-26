@@ -3,6 +3,7 @@
 #include <cassert>
 #include <stdexcept>
 #include <iostream>
+#include <cstdlib>
 
 #include <SDL_mouse.h>
 #include <SDL_endian.h>
@@ -15,7 +16,7 @@
 
 #include "imagetosurface.hpp"
 
-#ifdef OSG_LIBRARY_STATIC
+#if defined(OSG_LIBRARY_STATIC) && !defined(ANDROID)
 // Sets the default windowing system interface according to the OS.
 // Necessary for OpenSceneGraph to do some things, like decompression.
 USE_GRAPHICSWINDOW()
@@ -81,6 +82,8 @@ namespace
 
     osg::ref_ptr<osg::Image> decompress (osg::ref_ptr<osg::Image> source, float rotDegrees)
     {
+        // TODO: use software decompression once S3TC patent expires
+
         int width = source->s();
         int height = source->t();
 
@@ -130,9 +133,13 @@ namespace
         osg::ref_ptr<osg::Geometry> geom;
 
 #if defined(__APPLE__)
-        // Extra flip needed on Intel graphics OS X systems due to a driver bug
+        // Extra flip needed on OS X systems due to a driver bug
+        const char* envval = getenv("OPENMW_CURSOR_WORKAROUND");
+        bool workaround = !envval || envval == std::string("1");
         std::string vendorString = (const char*)glGetString(GL_VENDOR);
-        if (vendorString.find("Intel") != std::string::npos)
+        if (!envval)
+            workaround = vendorString.find("Intel") != std::string::npos || vendorString.find("ATI") != std::string::npos || vendorString.find("AMD") != std::string::npos;
+        if (workaround)
             geom = osg::createTexturedQuadGeometry(osg::Vec3(-1,1,0), osg::Vec3(2,0,0), osg::Vec3(0,-2,0));
         else
 #endif
@@ -196,24 +203,21 @@ namespace SDLUtil
     void SDLCursorManager::cursorChanged(const std::string& name)
     {
         mCurrentCursor = name;
-
-        CursorMap::const_iterator curs_iter = mCursorMap.find(name);
-
-        if(curs_iter != mCursorMap.end())
-        {
-            //we have this cursor
-            _setGUICursor(name);
-        }
+        _setGUICursor(name);
     }
 
     void SDLCursorManager::_setGUICursor(const std::string &name)
     {
-        SDL_SetCursor(mCursorMap.find(name)->second);
+        auto it = mCursorMap.find(name);
+        if (it != mCursorMap.end())
+            SDL_SetCursor(it->second);
     }
 
     void SDLCursorManager::createCursor(const std::string& name, int rotDegrees, osg::Image* image, Uint8 hotspot_x, Uint8 hotspot_y)
     {
+#ifndef ANDROID
         _createCursorFromResource(name, rotDegrees, image, hotspot_x, hotspot_y);
+#endif
     }
 
     void SDLCursorManager::_createCursorFromResource(const std::string& name, int rotDegrees, osg::Image* image, Uint8 hotspot_x, Uint8 hotspot_y)

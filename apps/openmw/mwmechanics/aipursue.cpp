@@ -8,8 +8,6 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/action.hpp"
 
-#include "../mwmechanics/creaturestats.hpp"
-
 #include "movement.hpp"
 #include "creaturestats.hpp"
 
@@ -35,7 +33,6 @@ bool AiPursue::execute (const MWWorld::Ptr& actor, CharacterController& characte
     if(actor.getClass().getCreatureStats(actor).isDead())
         return true;
 
-    ESM::Position pos = actor.getRefData().getPosition(); //position of the actor
     const MWWorld::Ptr target = MWBase::Environment::get().getWorld()->searchPtrViaActorId(mTargetActorId); //The target to follow
 
     if(target == MWWorld::Ptr() || !target.getRefData().getCount() || !target.getRefData().isEnabled()  // Really we should be checking whether the target is currently registered
@@ -53,14 +50,15 @@ bool AiPursue::execute (const MWWorld::Ptr& actor, CharacterController& characte
 
     //Set the target desition from the actor
     ESM::Pathgrid::Point dest = target.getRefData().getPosition().pos;
+    ESM::Position aPos = actor.getRefData().getPosition();
 
-    if(distance(dest, pos.pos[0], pos.pos[1], pos.pos[2]) < 100) { //Stop when you get close
-        actor.getClass().getMovementSettings(actor).mPosition[1] = 0;
-        target.getClass().activate(target,actor).get()->execute(actor); //Arrest player
+    float pathTolerance = 100.0;
+
+    if (pathTo(actor, dest, duration, pathTolerance) &&
+        std::abs(dest.mZ - aPos.pos[2]) < pathTolerance)      // check the true distance in case the target is far away in Z-direction
+    {
+        target.getClass().activate(target,actor).get()->execute(actor); //Arrest player when reached
         return true;
-    }
-    else {
-        pathTo(actor, dest, duration); //Go to the destination
     }
 
     actor.getClass().getCreatureStats(actor).setMovementFlag(MWMechanics::CreatureStats::Flag_Run, true); //Make NPC run
@@ -80,7 +78,7 @@ MWWorld::Ptr AiPursue::getTarget() const
 
 void AiPursue::writeState(ESM::AiSequence::AiSequence &sequence) const
 {
-    std::auto_ptr<ESM::AiSequence::AiPursue> pursue(new ESM::AiSequence::AiPursue());
+    std::unique_ptr<ESM::AiSequence::AiPursue> pursue(new ESM::AiSequence::AiPursue());
     pursue->mTargetActorId = mTargetActorId;
 
     ESM::AiSequence::AiPackageContainer package;

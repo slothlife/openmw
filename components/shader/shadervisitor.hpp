@@ -39,6 +39,7 @@ namespace Shader
         void setAutoUseNormalMaps(bool use);
 
         void setNormalMapPattern(const std::string& pattern);
+        void setNormalHeightMapPattern(const std::string& pattern);
 
         void setAutoUseSpecularMaps(bool use);
 
@@ -51,7 +52,7 @@ namespace Shader
 
         void applyStateSet(osg::ref_ptr<osg::StateSet> stateset, osg::Node& node);
 
-        void pushRequirements();
+        void pushRequirements(osg::Node& node);
         void popRequirements();
 
     private:
@@ -62,6 +63,7 @@ namespace Shader
 
         bool mAutoUseNormalMaps;
         std::string mNormalMapPattern;
+        std::string mNormalHeightMapPattern;
 
         bool mAutoUseSpecularMaps;
         std::string mSpecularMapPattern;
@@ -83,16 +85,21 @@ namespace Shader
             // osg::Material::ColorMode
             int mVertexColorMode;
             bool mMaterialOverridden;
+            bool mNormalHeight; // true if normal map has height info in alpha channel
 
             // -1 == no tangents required
             int mTexStageRequiringTangents;
+
+            // the Node that requested these requirements
+            osg::Node* mNode;
         };
         std::vector<ShaderRequirements> mRequirements;
 
         std::string mDefaultVsTemplate;
         std::string mDefaultFsTemplate;
 
-        void createProgram(const ShaderRequirements& reqs, osg::Node& node);
+        void createProgram(const ShaderRequirements& reqs);
+        bool adjustGeometry(osg::Geometry& sourceGeometry, const ShaderRequirements& reqs);
     };
 
 }

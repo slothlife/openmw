@@ -3,10 +3,12 @@
 # (see: https://wiki.openmw.org/index.php?title=Paths)
 
 data="?global?data"
-data="?mw?Data Files"
 data=./data
 data-local="?userdata?data"
 resources=./resources
 script-blacklist=Museum
 script-blacklist=MockChangeScript
 script-blacklist=doortestwarp
+script-blacklist=WereChange2Script
+script-blacklist=wereDreamScript2
+script-blacklist=wereDreamScript3

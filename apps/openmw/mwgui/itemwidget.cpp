@@ -16,8 +16,13 @@ namespace
     {
         if (count == 1)
             return "";
-        if (count > 9999)
-            return MyGUI::utility::toString(int(count/1000.f)) + "k";
+
+        if (count > 999999999)
+            return MyGUI::utility::toString(count/1000000000) + "b";
+        else if (count > 999999)
+            return MyGUI::utility::toString(count/1000000) + "m";
+        else if (count > 9999)
+            return MyGUI::utility::toString(count/1000) + "k";
         else
             return MyGUI::utility::toString(count);
     }
@@ -28,6 +33,7 @@ namespace MWGui
 
     ItemWidget::ItemWidget()
         : mItem(NULL)
+        , mItemShadow(NULL)
         , mFrame(NULL)
         , mText(NULL)
     {
@@ -44,6 +50,9 @@ namespace MWGui
         assignWidget(mItem, "Item");
         if (mItem)
             mItem->setNeedMouseFocus(false);
+        assignWidget(mItemShadow, "ItemShadow");
+        if (mItemShadow)
+            mItemShadow->setNeedMouseFocus(false);
         assignWidget(mFrame, "Frame");
         if (mFrame)
             mFrame->setNeedMouseFocus(false);
@@ -63,23 +72,38 @@ namespace MWGui
 
     void ItemWidget::setIcon(const std::string &icon)
     {
-        if (mItem)
-            mItem->setImageTexture(icon);
+        if (mCurrentIcon != icon)
+        {
+            mCurrentIcon = icon;
+
+            if (mItemShadow)
+                mItemShadow->setImageTexture(icon);
+            if (mItem)
+                mItem->setImageTexture(icon);
+        }
     }
 
     void ItemWidget::setFrame(const std::string &frame, const MyGUI::IntCoord &coord)
     {
         if (mFrame)
         {
-            mFrame->setImageTexture(frame);
             mFrame->setImageTile(MyGUI::IntSize(coord.width, coord.height)); // Why is this needed? MyGUI bug?
             mFrame->setImageCoord(coord);
+        }
+
+        if (mCurrentFrame != frame)
+        {
+            mCurrentFrame = frame;
+            mFrame->setImageTexture(frame);
         }
     }
 
     void ItemWidget::setIcon(const MWWorld::Ptr &ptr)
     {
-        setIcon(MWBase::Environment::get().getWindowManager()->correctIconPath(ptr.getClass().getInventoryIcon(ptr)));
+        std::string invIcon = ptr.getClass().getInventoryIcon(ptr);
+        if (invIcon.empty())
+            invIcon = "default icon.tga";
+        setIcon(MWBase::Environment::get().getWindowManager()->correctIconPath(invIcon));
     }
 
 
@@ -92,8 +116,12 @@ namespace MWGui
         {
             if (mFrame)
                 mFrame->setImageTexture("");
+            if (mItemShadow)
+                mItemShadow->setImageTexture("");
             mItem->setImageTexture("");
             mText->setCaption("");
+            mCurrentIcon.clear();
+            mCurrentFrame.clear();
             return;
         }
 

@@ -42,14 +42,16 @@ namespace MWRender
         Mask_Scene = (1<<12),
         Mask_GUI = (1<<13),
 
-        // Set on a Geode
+        // Set on a ParticleSystem Drawable
         Mask_ParticleSystem = (1<<14),
 
         // Set on cameras within the main scene graph
         Mask_RenderToTexture = (1<<15),
 
+        Mask_PreCompile = (1<<16),
+
         // Set on a camera's cull mask to enable the LightManager
-        Mask_Lighting = (1<<16)
+        Mask_Lighting = (1<<17)
     };
 
 }

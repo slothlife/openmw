@@ -15,7 +15,7 @@ namespace AiSequence
     void AiWander::load(ESMReader &esm)
     {
         esm.getHNT (mData, "DATA");
-        esm.getHNT(mStartTime, "STAR");
+        esm.getHNT(mDurationData, "STAR"); // was mStartTime
         mStoredInitialActorPosition = false;
         if (esm.isNextSub("POS_"))
         {
@@ -27,7 +27,7 @@ namespace AiSequence
     void AiWander::save(ESMWriter &esm) const
     {
         esm.writeHNT ("DATA", mData);
-        esm.writeHNT ("STAR", mStartTime);
+        esm.writeHNT ("STAR", mDurationData);
         if (mStoredInitialActorPosition)
             esm.writeHNT ("POS_", mInitialActorPosition);
     }
@@ -170,49 +170,49 @@ namespace AiSequence
             {
             case Ai_Wander:
             {
-                std::auto_ptr<AiWander> ptr (new AiWander());
+                std::unique_ptr<AiWander> ptr (new AiWander());
                 ptr->load(esm);
                 mPackages.back().mPackage = ptr.release();
                 break;
             }
             case Ai_Travel:
             {
-                std::auto_ptr<AiTravel> ptr (new AiTravel());
+                std::unique_ptr<AiTravel> ptr (new AiTravel());
                 ptr->load(esm);
                 mPackages.back().mPackage = ptr.release();
                 break;
             }
             case Ai_Escort:
             {
-                std::auto_ptr<AiEscort> ptr (new AiEscort());
+                std::unique_ptr<AiEscort> ptr (new AiEscort());
                 ptr->load(esm);
                 mPackages.back().mPackage = ptr.release();
                 break;
             }
             case Ai_Follow:
             {
-                std::auto_ptr<AiFollow> ptr (new AiFollow());
+                std::unique_ptr<AiFollow> ptr (new AiFollow());
                 ptr->load(esm);
                 mPackages.back().mPackage = ptr.release();
                 break;
             }
             case Ai_Activate:
             {
-                std::auto_ptr<AiActivate> ptr (new AiActivate());
+                std::unique_ptr<AiActivate> ptr (new AiActivate());
                 ptr->load(esm);
                 mPackages.back().mPackage = ptr.release();
                 break;
             }
             case Ai_Combat:
             {
-                std::auto_ptr<AiCombat> ptr (new AiCombat());
+                std::unique_ptr<AiCombat> ptr (new AiCombat());
                 ptr->load(esm);
                 mPackages.back().mPackage = ptr.release();
                 break;
             }
             case Ai_Pursue:
             {
-                std::auto_ptr<AiPursue> ptr (new AiPursue());
+                std::unique_ptr<AiPursue> ptr (new AiPursue());
                 ptr->load(esm);
                 mPackages.back().mPackage = ptr.release();
                 break;

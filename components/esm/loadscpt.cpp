@@ -67,24 +67,40 @@ namespace ESM
         while (esm.hasMoreSubs())
         {
             esm.getSubName();
-            switch (esm.retSubName().val)
+            switch (esm.retSubName().intval)
             {
                 case ESM::FourCC<'S','C','H','D'>::value:
+                {
                     SCHD data;
                     esm.getHT(data, 52);
                     mData = data.mData;
                     mId = data.mName.toString();
                     hasHeader = true;
                     break;
+                }
                 case ESM::FourCC<'S','C','V','R'>::value:
                     // list of local variables
                     loadSCVR(esm);
                     break;
                 case ESM::FourCC<'S','C','D','T'>::value:
+                {
                     // compiled script
-                    mScriptData.resize(mData.mScriptDataSize);
-                    esm.getHExact(&mScriptData[0], mScriptData.size());
+                    esm.getSubHeader();
+                    uint32_t subSize = esm.getSubSize();
+
+                    if (subSize != static_cast<uint32_t>(mData.mScriptDataSize))
+                    {
+                        std::stringstream ss;
+                        ss << "ESM Warning: Script data size defined in SCHD subrecord does not match size of SCDT subrecord";
+                        ss << "\n  File: " << esm.getName();
+                        ss << "\n  Offset: 0x" << std::hex << esm.getFileOffset();
+                        std::cerr << ss.str() << std::endl;
+                    }
+
+                    mScriptData.resize(subSize);
+                    esm.getExact(&mScriptData[0], mScriptData.size());
                     break;
+                }
                 case ESM::FourCC<'S','C','T','X'>::value:
                     mScriptText = esm.getHString();
                     break;
@@ -113,7 +129,7 @@ namespace ESM
         memset(&data, 0, sizeof(data));
 
         data.mData = mData;
-        memcpy(data.mName.name, mId.c_str(), mId.size());
+        data.mName.assign(mId);
 
         esm.writeHNT("SCHD", data, 52);
 

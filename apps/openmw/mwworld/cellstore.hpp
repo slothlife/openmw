@@ -6,8 +6,7 @@
 #include <string>
 #include <typeinfo>
 #include <map>
-
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 #include "livecellref.hpp"
 #include "cellreflist.hpp"
@@ -33,13 +32,12 @@
 #include <components/esm/loadmisc.hpp>
 #include <components/esm/loadbody.hpp>
 
-#include "../mwmechanics/pathgrid.hpp"  // TODO: maybe belongs in mwworld
-
 #include "timestamp.hpp"
 #include "ptr.hpp"
 
 namespace ESM
 {
+    struct Cell;
     struct CellState;
     struct FogState;
     struct CellId;
@@ -67,7 +65,7 @@ namespace MWWorld
             // Even though fog actually belongs to the player and not cells,
             // it makes sense to store it here since we need it once for each cell.
             // Note this is NULL until the cell is explored to save some memory
-            boost::shared_ptr<ESM::FogState> mFogState;
+            std::shared_ptr<ESM::FogState> mFogState;
 
             const ESM::Cell *mCell;
             State mState;
@@ -110,6 +108,9 @@ namespace MWWorld
 
             // Merged list of ref's currently in this cell - i.e. with added refs from mMovedHere, removed refs from mMovedToAnotherCell
             std::vector<LiveCellRefBase*> mMergedRefs;
+
+            // Get the Ptr for the given ref which originated from this cell (possibly moved to another cell at this point).
+            Ptr getCurrentPtr(MWWorld::LiveCellRefBase* ref);
 
             /// Moves object from the given cell to this cell.
             void moveFrom(const MWWorld::Ptr& object, MWWorld::CellStore* from);
@@ -258,6 +259,9 @@ namespace MWWorld
                 if (mState != State_Loaded)
                     return false;
 
+                if (mMergedRefs.empty())
+                    return true;
+
                 mHasState = true;
 
                 for (unsigned int i=0; i<mMergedRefs.size(); ++i)
@@ -304,6 +308,9 @@ namespace MWWorld
             {
                 if (mState != State_Loaded)
                     return false;
+
+                if (mMergedRefs.empty())
+                    return true;
 
                 mHasState = true;
 
@@ -368,10 +375,6 @@ namespace MWWorld
             void respawn ();
             ///< Check mLastRespawn and respawn references if necessary. This is a no-op if the cell is not loaded.
 
-            bool isPointConnected(const int start, const int end) const;
-
-            std::list<ESM::Pathgrid::Point> aStarSearch(const int start, const int end) const;
-
         private:
 
             /// Run through references and store IDs
@@ -379,12 +382,10 @@ namespace MWWorld
 
             void loadRefs();
 
-            void loadRef (ESM::CellRef& ref, bool deleted);
+            void loadRef (ESM::CellRef& ref, bool deleted, std::map<ESM::RefNum, std::string>& refNumToID);
             ///< Make case-adjustments to \a ref and insert it into the respective container.
             ///
             /// Invalid \a ref objects are silently dropped.
-
-            MWMechanics::PathgridGraph mPathgridGraph;
     };
 
     template<>

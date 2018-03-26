@@ -1,12 +1,12 @@
 #include "scenemanager.hpp"
 
 #include <iostream>
+#include <cstdlib>
+
 #include <osg/Node>
-#include <osg/Geode>
 #include <osg/UserDataContainer>
 
 #include <osgParticle/ParticleSystem>
-#include <osgFX/Effect>
 
 #include <osgUtil/IncrementalCompileOperation>
 
@@ -16,11 +16,14 @@
 #include <components/nifosg/nifloader.hpp>
 #include <components/nif/niffile.hpp>
 
+#include <components/misc/stringops.hpp>
+
 #include <components/vfs/manager.hpp>
 
 #include <components/sceneutil/clone.hpp>
 #include <components/sceneutil/util.hpp>
 #include <components/sceneutil/controller.hpp>
+#include <components/sceneutil/optimizer.hpp>
 
 #include <components/shader/shadervisitor.hpp>
 #include <components/shader/shadermanager.hpp>
@@ -33,38 +36,18 @@
 namespace
 {
 
-    /// @todo Do this in updateCallback so that animations are accounted for.
-    class InitWorldSpaceParticlesVisitor : public osg::NodeVisitor
+    class InitWorldSpaceParticlesCallback : public osg::NodeCallback
     {
     public:
-        /// @param mask The node mask to set on ParticleSystem nodes.
-        InitWorldSpaceParticlesVisitor(unsigned int mask)
-            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
-            , mMask(mask)
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv)
         {
-        }
+            osgParticle::ParticleSystem* partsys = static_cast<osgParticle::ParticleSystem*>(node);
 
-        bool isWorldSpaceParticleSystem(osgParticle::ParticleSystem* partsys)
-        {
-            // HACK: ParticleSystem has no getReferenceFrame()
-            return (partsys->getUserDataContainer()
-                    && partsys->getUserDataContainer()->getNumDescriptions() > 0
-                    && partsys->getUserDataContainer()->getDescriptions()[0] == "worldspace");
-        }
+            // HACK: Ignore the InverseWorldMatrix transform the particle system is attached to
+            if (partsys->getNumParents() && partsys->getParent(0)->getNumParents())
+                transformInitialParticles(partsys, partsys->getParent(0)->getParent(0));
 
-        // in OSG 3.3 and up Drawables can be directly in the scene graph without a Geode decorating them.
-        void apply(osg::Drawable& drw)
-        {
-            if (osgParticle::ParticleSystem* partsys = dynamic_cast<osgParticle::ParticleSystem*>(&drw))
-            {
-                if (isWorldSpaceParticleSystem(partsys))
-                {
-                    // HACK: Ignore the InverseWorldMatrix transform the particle system is attached to
-                    if (partsys->getNumParents() && partsys->getParent(0)->getNumParents())
-                        transformInitialParticles(partsys, partsys->getParent(0)->getParent(0));
-                }
-                partsys->setNodeMask(mMask);
-            }
+            node->removeUpdateCallback(this);
         }
 
         void transformInitialParticles(osgParticle::ParticleSystem* partsys, osg::Node* node)
@@ -86,6 +69,39 @@ namespace
             box.expandBy(sphere);
             partsys->setInitialBound(box);
         }
+
+    };
+
+    class InitParticlesVisitor : public osg::NodeVisitor
+    {
+    public:
+        /// @param mask The node mask to set on ParticleSystem nodes.
+        InitParticlesVisitor(unsigned int mask)
+            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+            , mMask(mask)
+        {
+        }
+
+        bool isWorldSpaceParticleSystem(osgParticle::ParticleSystem* partsys)
+        {
+            // HACK: ParticleSystem has no getReferenceFrame()
+            return (partsys->getUserDataContainer()
+                    && partsys->getUserDataContainer()->getNumDescriptions() > 0
+                    && partsys->getUserDataContainer()->getDescriptions()[0] == "worldspace");
+        }
+
+        void apply(osg::Drawable& drw)
+        {
+            if (osgParticle::ParticleSystem* partsys = dynamic_cast<osgParticle::ParticleSystem*>(&drw))
+            {
+                if (isWorldSpaceParticleSystem(partsys))
+                {
+                    partsys->addUpdateCallback(new InitWorldSpaceParticlesCallback);
+                }
+                partsys->setNodeMask(mMask);
+            }
+        }
+
     private:
         unsigned int mMask;
     };
@@ -93,6 +109,27 @@ namespace
 
 namespace Resource
 {
+
+    class SharedStateManager : public osgDB::SharedStateManager
+    {
+    public:
+        unsigned int getNumSharedTextures() const
+        {
+            return _sharedTextureList.size();
+        }
+
+        unsigned int getNumSharedStateSets() const
+        {
+            return _sharedStateSetList.size();
+        }
+
+        void clearCache()
+        {
+            OpenThreads::ScopedLock<OpenThreads::Mutex> lock(_listMutex);
+            _sharedTextureList.clear();
+            _sharedStateSetList.clear();
+        }
+    };
 
     /// Set texture filtering settings on textures contained in a FlipController.
     class SetFilterSettingsControllerVisitor : public SceneUtil::ControllerVisitor
@@ -139,42 +176,11 @@ namespace Resource
 
         virtual void apply(osg::Node& node)
         {
-            if (osgFX::Effect* effect = dynamic_cast<osgFX::Effect*>(&node))
-                applyEffect(*effect);
-
             osg::StateSet* stateset = node.getStateSet();
             if (stateset)
                 applyStateSet(stateset);
 
             traverse(node);
-        }
-
-        void applyEffect(osgFX::Effect& effect)
-        {
-            for (int i =0; i<effect.getNumTechniques(); ++i)
-            {
-                osgFX::Technique* tech = effect.getTechnique(i);
-                for (int pass=0; pass<tech->getNumPasses(); ++pass)
-                {
-                    if (tech->getPassStateSet(pass))
-                        applyStateSet(tech->getPassStateSet(pass));
-                }
-            }
-        }
-
-        virtual void apply(osg::Geode& geode)
-        {
-            osg::StateSet* stateset = geode.getStateSet();
-            if (stateset)
-                applyStateSet(stateset);
-
-            for (unsigned int i=0; i<geode.getNumDrawables(); ++i)
-            {
-                osg::Drawable* drw = geode.getDrawable(i);
-                stateset = drw->getStateSet();
-                if (stateset)
-                    applyStateSet(stateset);
-            }
         }
 
         void applyStateSet(osg::StateSet* stateset)
@@ -215,6 +221,7 @@ namespace Resource
         , mAutoUseNormalMaps(false)
         , mAutoUseSpecularMaps(false)
         , mInstanceCache(new MultiObjectCache)
+        , mSharedStateManager(new SharedStateManager)
         , mImageManager(imageManager)
         , mNifFileManager(nifFileManager)
         , mMinFilter(osg::Texture::LINEAR_MIPMAP_LINEAR)
@@ -237,12 +244,9 @@ namespace Resource
 
     void SceneManager::recreateShaders(osg::ref_ptr<osg::Node> node)
     {
-        Shader::ShaderVisitor shaderVisitor(*mShaderManager.get(), *mImageManager, "objects_vertex.glsl", "objects_fragment.glsl");
-        shaderVisitor.setForceShaders(mForceShaders);
-        shaderVisitor.setClampLighting(mClampLighting);
-        shaderVisitor.setForcePerPixelLighting(mForcePerPixelLighting);
-        shaderVisitor.setAllowedToModifyStateSets(false);
-        node->accept(shaderVisitor);
+        osg::ref_ptr<Shader::ShaderVisitor> shaderVisitor(createShaderVisitor());
+        shaderVisitor->setAllowedToModifyStateSets(false);
+        node->accept(*shaderVisitor);
     }
 
     void SceneManager::setClampLighting(bool clamp)
@@ -275,6 +279,11 @@ namespace Resource
         mNormalMapPattern = pattern;
     }
 
+    void SceneManager::setNormalHeightMapPattern(const std::string &pattern)
+    {
+        mNormalHeightMapPattern = pattern;
+    }
+
     void SceneManager::setAutoUseSpecularMaps(bool use)
     {
         mAutoUseSpecularMaps = use;
@@ -298,6 +307,14 @@ namespace Resource
     void SceneManager::setShaderPath(const std::string &path)
     {
         mShaderManager->setShaderPath(path);
+    }
+
+    bool SceneManager::checkLoaded(const std::string &name, double timeStamp)
+    {
+        std::string normalized = name;
+        mVFS->normalizeFilename(normalized);
+
+        return mCache->checkInObjectCache(normalized, timeStamp);
     }
 
     /// @brief Callback to read image files from the VFS.
@@ -365,6 +382,99 @@ namespace Resource
         }
     }
 
+    class CanOptimizeCallback : public SceneUtil::Optimizer::IsOperationPermissibleForObjectCallback
+    {
+    public:
+        bool isReservedName(const std::string& name) const
+        {
+            if (name.empty())
+                return false;
+
+            static std::vector<std::string> reservedNames;
+            if (reservedNames.empty())
+            {
+                const char* reserved[] = {"Head", "Neck", "Chest", "Groin", "Right Hand", "Left Hand", "Right Wrist", "Left Wrist", "Shield Bone", "Right Forearm", "Left Forearm", "Right Upper Arm", "Left Upper Arm", "Right Foot", "Left Foot", "Right Ankle", "Left Ankle", "Right Knee", "Left Knee", "Right Upper Leg", "Left Upper Leg", "Right Clavicle", "Left Clavicle", "Weapon Bone", "Tail",
+                                         "Bip01 L Hand", "Bip01 R Hand", "Bip01 Head", "Bip01 Spine1", "Bip01 Spine2", "Bip01 L Clavicle", "Bip01 R Clavicle", "bip01", "Root Bone", "Bip01 Neck",
+                                         "BoneOffset", "AttachLight", "ArrowBone", "Camera"};
+                reservedNames = std::vector<std::string>(reserved, reserved + sizeof(reserved)/sizeof(reserved[0]));
+
+                for (unsigned int i=0; i<sizeof(reserved)/sizeof(reserved[0]); ++i)
+                    reservedNames.push_back(std::string("Tri ") + reserved[i]);
+
+                std::sort(reservedNames.begin(), reservedNames.end(), Misc::StringUtils::ciLess);
+            }
+
+            std::vector<std::string>::iterator it = Misc::StringUtils::partialBinarySearch(reservedNames.begin(), reservedNames.end(), name);
+            return it != reservedNames.end();
+        }
+
+        virtual bool isOperationPermissibleForObjectImplementation(const SceneUtil::Optimizer* optimizer, const osg::Drawable* node,unsigned int option) const
+        {
+            if (option & SceneUtil::Optimizer::FLATTEN_STATIC_TRANSFORMS)
+            {
+                if (node->asGeometry() && node->className() == std::string("Geometry"))
+                    return true;
+                else
+                    return false; //ParticleSystem would have to convert space of all the processors, RigGeometry would have to convert bones... theoretically possible, but very complicated
+            }
+            return (option & optimizer->getPermissibleOptimizationsForObject(node))!=0;
+        }
+
+        virtual bool isOperationPermissibleForObjectImplementation(const SceneUtil::Optimizer* optimizer, const osg::Node* node,unsigned int option) const
+        {
+            if (node->getNumDescriptions()>0) return false;
+            if (node->getDataVariance() == osg::Object::DYNAMIC) return false;
+            if (isReservedName(node->getName())) return false;
+
+            return (option & optimizer->getPermissibleOptimizationsForObject(node))!=0;
+        }
+    };
+
+    bool canOptimize(const std::string& filename)
+    {
+        size_t slashpos = filename.find_last_of("\\/");
+        if (slashpos != std::string::npos && slashpos+1 < filename.size())
+        {
+            std::string basename = filename.substr(slashpos+1);
+            // xmesh.nif can not be optimized because there are keyframes added in post
+            if (!basename.empty() && basename[0] == 'x')
+                return false;
+
+            // NPC skeleton files can not be optimized because of keyframes added in post
+            // (most of them are usually named like 'xbase_anim.nif' anyway, but not all of them :( )
+            if (basename.compare(0, 9, "base_anim") == 0 || basename.compare(0, 4, "skin") == 0)
+                return false;
+        }
+
+        // For spell VFX, DummyXX nodes must remain intact. Not adding those to reservedNames to avoid being overly cautious - instead, decide on filename
+        if (filename.find("vfx_pattern") != std::string::npos)
+            return false;
+        return true;
+    }
+
+    unsigned int getOptimizationOptions()
+    {
+        using namespace SceneUtil;
+        const char* env = getenv("OPENMW_OPTIMIZE");
+        unsigned int options = Optimizer::FLATTEN_STATIC_TRANSFORMS|Optimizer::REMOVE_REDUNDANT_NODES|Optimizer::MERGE_GEOMETRY;
+        if (env)
+        {
+            std::string str(env);
+
+            if(str.find("OFF")!=std::string::npos || str.find("0")!= std::string::npos) options = 0;
+
+            if(str.find("~FLATTEN_STATIC_TRANSFORMS")!=std::string::npos) options ^= Optimizer::FLATTEN_STATIC_TRANSFORMS;
+            else if(str.find("FLATTEN_STATIC_TRANSFORMS")!=std::string::npos) options |= Optimizer::FLATTEN_STATIC_TRANSFORMS;
+
+            if(str.find("~REMOVE_REDUNDANT_NODES")!=std::string::npos) options ^= Optimizer::REMOVE_REDUNDANT_NODES;
+            else if(str.find("REMOVE_REDUNDANT_NODES")!=std::string::npos) options |= Optimizer::REMOVE_REDUNDANT_NODES;
+
+            if(str.find("~MERGE_GEOMETRY")!=std::string::npos) options ^= Optimizer::MERGE_GEOMETRY;
+            else if(str.find("MERGE_GEOMETRY")!=std::string::npos) options |= Optimizer::MERGE_GEOMETRY;
+        }
+        return options;
+    }
+
     osg::ref_ptr<const osg::Node> SceneManager::getTemplate(const std::string &name)
     {
         std::string normalized = name;
@@ -408,20 +518,25 @@ namespace Resource
             SetFilterSettingsControllerVisitor setFilterSettingsControllerVisitor(mMinFilter, mMagFilter, mMaxAnisotropy);
             loaded->accept(setFilterSettingsControllerVisitor);
 
-            Shader::ShaderVisitor shaderVisitor(*mShaderManager.get(), *mImageManager, "objects_vertex.glsl", "objects_fragment.glsl");
-            shaderVisitor.setForceShaders(mForceShaders);
-            shaderVisitor.setClampLighting(mClampLighting);
-            shaderVisitor.setForcePerPixelLighting(mForcePerPixelLighting);
-            shaderVisitor.setAutoUseNormalMaps(mAutoUseNormalMaps);
-            shaderVisitor.setNormalMapPattern(mNormalMapPattern);
-            shaderVisitor.setAutoUseSpecularMaps(mAutoUseSpecularMaps);
-            shaderVisitor.setSpecularMapPattern(mSpecularMapPattern);
-            loaded->accept(shaderVisitor);
+            osg::ref_ptr<Shader::ShaderVisitor> shaderVisitor (createShaderVisitor());
+            loaded->accept(*shaderVisitor);
 
             // share state
+            // do this before optimizing so the optimizer will be able to combine nodes more aggressively
+            // note, because StateSets will be shared at this point, StateSets can not be modified inside the optimizer
             mSharedStateMutex.lock();
-            osgDB::Registry::instance()->getOrCreateSharedStateManager()->share(loaded.get());
+            mSharedStateManager->share(loaded.get());
             mSharedStateMutex.unlock();
+
+            if (canOptimize(normalized))
+            {
+                SceneUtil::Optimizer optimizer;
+                optimizer.setIsOperationPermissibleForObjectCallback(new CanOptimizeCallback);
+
+                static const unsigned int options = getOptimizationOptions();
+
+                optimizer.optimize(loaded, options);
+            }
 
             if (mIncrementalCompileOperation)
                 mIncrementalCompileOperation->add(loaded);
@@ -441,13 +556,39 @@ namespace Resource
         return node;
     }
 
+    class TemplateRef : public osg::Object
+    {
+    public:
+        TemplateRef(const Object* object)
+            : mObject(object) {}
+        TemplateRef() {}
+        TemplateRef(const TemplateRef& copy, const osg::CopyOp&) : mObject(copy.mObject) {}
+
+        META_Object(Resource, TemplateRef)
+
+    private:
+        osg::ref_ptr<const Object> mObject;
+    };
+
     osg::ref_ptr<osg::Node> SceneManager::createInstance(const std::string& name)
     {
         osg::ref_ptr<const osg::Node> scene = getTemplate(name);
-        osg::ref_ptr<osg::Node> cloned = osg::clone(scene.get(), SceneUtil::CopyOp());
+        return createInstance(scene);
+    }
+
+    osg::ref_ptr<osg::Node> SceneManager::createInstance(const osg::Node *base)
+    {
+        osg::ref_ptr<osg::Node> cloned = osg::clone(base, SceneUtil::CopyOp());
 
         // add a ref to the original template, to hint to the cache that it's still being used and should be kept in cache
-        cloned->getOrCreateUserDataContainer()->addUserObject(const_cast<osg::Node*>(scene.get()));
+        cloned->getOrCreateUserDataContainer()->addUserObject(new TemplateRef(base));
+
+        // we can skip any scene graphs without update callbacks since we know that particle emitters will have an update callback set
+        if (cloned->getNumChildrenRequiringUpdateTraversal() > 0)
+        {
+            InitParticlesVisitor visitor (mParticleSystemMask);
+            cloned->accept(visitor);
+        }
 
         return cloned;
     }
@@ -475,13 +616,17 @@ namespace Resource
     void SceneManager::attachTo(osg::Node *instance, osg::Group *parentNode) const
     {
         parentNode->addChild(instance);
-        notifyAttached(instance);
     }
 
     void SceneManager::releaseGLObjects(osg::State *state)
     {
         mCache->releaseGLObjects(state);
         mInstanceCache->releaseGLObjects(state);
+
+        mShaderManager->releaseGLObjects(state);
+
+        OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mSharedStateMutex);
+        mSharedStateManager->releaseGLObjects(state);
     }
 
     void SceneManager::setIncrementalCompileOperation(osgUtil::IncrementalCompileOperation *ico)
@@ -489,10 +634,9 @@ namespace Resource
         mIncrementalCompileOperation = ico;
     }
 
-    void SceneManager::notifyAttached(osg::Node *node) const
+    osgUtil::IncrementalCompileOperation *SceneManager::getIncrementalCompileOperation()
     {
-        InitWorldSpaceParticlesVisitor visitor (mParticleSystemMask);
-        node->accept(visitor);
+        return mIncrementalCompileOperation.get();
     }
 
     Resource::ImageManager* SceneManager::getImageManager()
@@ -514,12 +658,12 @@ namespace Resource
         if(magfilter == "nearest")
             mag = osg::Texture::NEAREST;
         else if(magfilter != "linear")
-            std::cerr<< "Invalid texture mag filter: "<<magfilter <<std::endl;
+            std::cerr<< "Warning: Invalid texture mag filter: "<<magfilter <<std::endl;
 
         if(minfilter == "nearest")
             min = osg::Texture::NEAREST;
         else if(minfilter != "linear")
-            std::cerr<< "Invalid texture min filter: "<<minfilter <<std::endl;
+            std::cerr<< "Warning: Invalid texture min filter: "<<minfilter <<std::endl;
 
         if(mipmap == "nearest")
         {
@@ -531,7 +675,7 @@ namespace Resource
         else if(mipmap != "none")
         {
             if(mipmap != "linear")
-                std::cerr<< "Invalid texture mipmap: "<<mipmap <<std::endl;
+                std::cerr<< "Warning: Invalid texture mipmap: "<<mipmap <<std::endl;
             if(min == osg::Texture::NEAREST)
                 min = osg::Texture::NEAREST_MIPMAP_LINEAR;
             else if(min == osg::Texture::LINEAR)
@@ -566,6 +710,50 @@ namespace Resource
         ResourceManager::updateCache(referenceTime);
 
         mInstanceCache->removeUnreferencedObjectsInCache();
+
+        mSharedStateMutex.lock();
+        mSharedStateManager->prune();
+        mSharedStateMutex.unlock();
+    }
+
+    void SceneManager::clearCache()
+    {
+        ResourceManager::clearCache();
+
+        OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mSharedStateMutex);
+        mSharedStateManager->clearCache();
+        mInstanceCache->clear();
+    }
+
+    void SceneManager::reportStats(unsigned int frameNumber, osg::Stats *stats) const
+    {
+        {
+            OpenThreads::ScopedLock<OpenThreads::Mutex> lock(*mIncrementalCompileOperation->getToCompiledMutex());
+            stats->setAttribute(frameNumber, "Compiling", mIncrementalCompileOperation->getToCompile().size());
+        }
+
+        {
+            OpenThreads::ScopedLock<OpenThreads::Mutex> lock(mSharedStateMutex);
+            stats->setAttribute(frameNumber, "Texture", mSharedStateManager->getNumSharedTextures());
+            stats->setAttribute(frameNumber, "StateSet", mSharedStateManager->getNumSharedStateSets());
+        }
+
+        stats->setAttribute(frameNumber, "Node", mCache->getCacheSize());
+        stats->setAttribute(frameNumber, "Node Instance", mInstanceCache->getCacheSize());
+    }
+
+    Shader::ShaderVisitor *SceneManager::createShaderVisitor()
+    {
+        Shader::ShaderVisitor* shaderVisitor = new Shader::ShaderVisitor(*mShaderManager.get(), *mImageManager, "objects_vertex.glsl", "objects_fragment.glsl");
+        shaderVisitor->setForceShaders(mForceShaders);
+        shaderVisitor->setClampLighting(mClampLighting);
+        shaderVisitor->setForcePerPixelLighting(mForcePerPixelLighting);
+        shaderVisitor->setAutoUseNormalMaps(mAutoUseNormalMaps);
+        shaderVisitor->setNormalMapPattern(mNormalMapPattern);
+        shaderVisitor->setNormalHeightMapPattern(mNormalHeightMapPattern);
+        shaderVisitor->setAutoUseSpecularMaps(mAutoUseSpecularMaps);
+        shaderVisitor->setSpecularMapPattern(mSpecularMapPattern);
+        return shaderVisitor;
     }
 
 }

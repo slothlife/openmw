@@ -34,13 +34,17 @@ namespace MWClass
             if (getCreatureStats(ptr).isDead())
                 MWBase::Environment::get().getWorld()->enableActorCollision(ptr, false);
         }
-        MWBase::Environment::get().getMechanicsManager()->add(ptr);
+    }
+
+    bool Actor::useAnim() const
+    {
+        return true;
     }
 
     void Actor::block(const MWWorld::Ptr &ptr) const
     {
-        MWWorld::InventoryStore& inv = getInventoryStore(ptr);
-        MWWorld::ContainerStoreIterator shield = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedLeft);
+        const MWWorld::InventoryStore& inv = getInventoryStore(ptr);
+        MWWorld::ConstContainerStoreIterator shield = inv.getSlot(MWWorld::InventoryStore::Slot_CarriedLeft);
         if (shield == inv.end())
             return;
 
@@ -78,5 +82,24 @@ namespace MWClass
         weight -= effects.get(MWMechanics::EffectKey(ESM::MagicEffect::Feather)).getMagnitude();
         weight += effects.get(MWMechanics::EffectKey(ESM::MagicEffect::Burden)).getMagnitude();
         return (weight < 0) ? 0.0f : weight;
+    }
+
+    bool Actor::allowTelekinesis(const MWWorld::ConstPtr &ptr) const {
+        return false;
+    }
+
+    bool Actor::isActor() const
+    {
+        return true;
+    }
+
+    bool Actor::canBeActivated(const MWWorld::Ptr& ptr) const
+    {
+        MWMechanics::CreatureStats &stats = getCreatureStats(ptr);
+
+        if (stats.getAiSequence().isInCombat() && !stats.isDead())
+            return false;
+
+        return true;
     }
 }

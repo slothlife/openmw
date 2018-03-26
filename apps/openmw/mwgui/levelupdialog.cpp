@@ -19,6 +19,8 @@
 #include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/actorutil.hpp"
 
+#include "class.hpp"
+
 namespace MWGui
 {
     const unsigned int LevelupDialog::sMaxCoins = 3;
@@ -39,6 +41,7 @@ namespace MWGui
         {
             MyGUI::TextBox* t;
             getWidget(t, "AttribVal" + MyGUI::utility::toString(i));
+            mAttributeValues.push_back(t);
 
             MyGUI::Button* b;
             getWidget(b, "Attrib" + MyGUI::utility::toString(i));
@@ -46,10 +49,7 @@ namespace MWGui
             b->eventMouseButtonClick += MyGUI::newDelegate(this, &LevelupDialog::onAttributeClicked);
             mAttributes.push_back(b);
 
-            mAttributeValues.push_back(t);
-
             getWidget(t, "AttribMultiplier" + MyGUI::utility::toString(i));
-
             mAttributeMultipliers.push_back(t);
         }
 
@@ -87,7 +87,7 @@ namespace MWGui
 
     void LevelupDialog::resetCoins()
     {
-        const int coinSpacing = 10;
+        const int coinSpacing = 33;
         int curX = mCoinBox->getWidth()/2 - (coinSpacing*(mCoinCount - 1) + 16*mCoinCount)/2;
         for (unsigned int i=0; i<sMaxCoins; ++i)
         {
@@ -126,44 +126,25 @@ namespace MWGui
         setAttributeValues();
     }
 
-    void LevelupDialog::open()
+    void LevelupDialog::onOpen()
     {
         MWBase::World *world = MWBase::Environment::get().getWorld();
         MWWorld::Ptr player = world->getPlayerPtr();
         MWMechanics::CreatureStats& creatureStats = player.getClass().getCreatureStats(player);
         MWMechanics::NpcStats& pcStats = player.getClass().getNpcStats(player);
 
-        const ESM::NPC *playerData = player.get<ESM::NPC>()->mBase;
-
-        // set class image
-        const ESM::Class *cls =
-            world->getStore().get<ESM::Class>().find(playerData->mClass);
-
-        if(world->getStore().get<ESM::Class>().isDynamic(cls->mId))
-        {
-            // Choosing Stealth specialization and Speed/Agility as attributes, if possible. Otherwise fall back to first class found.
-            MWWorld::SharedIterator<ESM::Class> it = world->getStore().get<ESM::Class>().begin();
-            for(; it != world->getStore().get<ESM::Class>().end(); ++it)
-            {
-                if(it->mData.mIsPlayable && it->mData.mSpecialization == 2 && it->mData.mAttribute[0] == 4 && it->mData.mAttribute[1] == 3)
-                    break;
-            }
-            if (it == world->getStore().get<ESM::Class>().end())
-                it = world->getStore().get<ESM::Class>().begin();
-            if (it != world->getStore().get<ESM::Class>().end())
-                cls = &*it;
-        }
-
-        mClassImage->setImageTexture ("textures\\levelup\\" + cls->mId + ".dds");
+        setClassImage(mClassImage, getLevelupClassImage(pcStats.getSkillIncreasesForSpecialization(0),
+                                                        pcStats.getSkillIncreasesForSpecialization(1),
+                                                        pcStats.getSkillIncreasesForSpecialization(2)));
 
         int level = creatureStats.getLevel ()+1;
         mLevelText->setCaptionWithReplacing("#{sLevelUpMenu1} " + MyGUI::utility::toString(level));
 
         std::string levelupdescription;
-        if(level > 20)
+        levelupdescription=world->getFallback()->getFallbackString("Level_Up_Level"+MyGUI::utility::toString(level));
+
+        if (levelupdescription == "")
             levelupdescription=world->getFallback()->getFallbackString("Level_Up_Default");
-        else
-            levelupdescription=world->getFallback()->getFallbackString("Level_Up_Level"+MyGUI::utility::toString(level));
 
         mLevelDescription->setCaption (levelupdescription);
 
@@ -245,5 +226,104 @@ namespace MWGui
                 mSpentAttributes.push_back(attribute);
         }
         assignCoins();
+    }
+
+    std::string LevelupDialog::getLevelupClassImage(const int combatIncreases, const int magicIncreases, const int stealthIncreases)
+    {
+        std::string ret = "acrobat";
+
+        int total = combatIncreases + magicIncreases + stealthIncreases;
+        if (total == 0)
+            return ret;
+
+        int combatFraction = static_cast<int>(static_cast<float>(combatIncreases) / total * 10.f);
+        int magicFraction = static_cast<int>(static_cast<float>(magicIncreases) / total * 10.f);
+        int stealthFraction = static_cast<int>(static_cast<float>(stealthIncreases) / total * 10.f);
+
+        if (combatFraction > 7)
+            ret = "warrior";
+        else if (magicFraction > 7)
+            ret = "mage";
+        else if (stealthFraction > 7)
+            ret = "thief";
+
+        switch (combatFraction)
+        {
+            case 7:
+                ret = "warrior";
+                break;
+            case 6:
+                if (stealthFraction == 1)
+                    ret = "barbarian";
+                else if (stealthFraction == 3)
+                    ret = "crusader";
+                else
+                    ret = "knight";
+                break;
+            case 5:
+                if (stealthFraction == 3)
+                    ret = "scout";
+                else
+                    ret = "archer";
+                break;
+            case 4:
+                ret = "rogue";
+                break;
+            default:
+                break;
+        }
+
+        switch (magicFraction)
+        {
+            case 7:
+                ret = "mage";
+                break;
+            case 6:
+                if (combatFraction == 2)
+                    ret = "sorcerer";
+                else if (combatIncreases == 3)
+                    ret = "healer";
+                else
+                    ret = "battlemage";
+                break;
+            case 5:
+                ret = "witchhunter";
+                break;
+            case 4:
+                ret = "spellsword";
+                // In vanilla there's also code for "nightblade", however it seems to be unreachable.
+                break;
+            default:
+                break;
+        }
+
+        switch (stealthFraction)
+        {
+            case 7:
+                ret = "thief";
+                break;
+            case 6:
+                if (magicFraction == 1)
+                    ret = "agent";
+                else if (magicIncreases == 3)
+                    ret = "assassin";
+                else
+                    ret = "acrobat";
+                break;
+            case 5:
+                if (magicIncreases == 3)
+                    ret = "monk";
+                else
+                    ret = "pilgrim";
+                break;
+            case 3:
+                if (magicFraction == 3)
+                    ret = "bard";
+                break;
+            default:
+                break;
+        }
+
+        return ret;
     }
 }

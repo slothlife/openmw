@@ -202,11 +202,6 @@ namespace MWScript
                     if (!ptr.isInCell())
                         return;
 
-                    if (ptr == MWMechanics::getPlayer())
-                    {
-                        MWBase::Environment::get().getWorld()->getPlayer().setTeleported(true);
-                    }
-
                     std::string axis = runtime.getStringLiteral (runtime[0].mInteger);
                     runtime.pop();
                     Interpreter::Type_Float pos = runtime[0].mFloat;
@@ -215,6 +210,8 @@ namespace MWScript
                     float ax = ptr.getRefData().getPosition().pos[0];
                     float ay = ptr.getRefData().getPosition().pos[1];
                     float az = ptr.getRefData().getPosition().pos[2];
+
+                    // Note: SetPos does not skip weather transitions in vanilla engine, so we do not call setTeleported(true) here.
 
                     MWWorld::Ptr updated = ptr;
                     if(axis == "x")
@@ -227,6 +224,17 @@ namespace MWScript
                     }
                     else if(axis == "z")
                     {
+                        // We should not place actors under ground
+                        if (ptr.getClass().isActor())
+                        {
+                            float terrainHeight = -std::numeric_limits<float>::max();
+                            if (ptr.getCell()->isExterior())
+                                terrainHeight = MWBase::Environment::get().getWorld()->getTerrainHeightAt(osg::Vec3f(ax, ay, az));
+
+                            if (pos < terrainHeight)
+                                pos = terrainHeight;
+                        }
+
                         updated = MWBase::Environment::get().getWorld()->moveObject(ptr,ax,ay,pos);
                     }
                     else
@@ -307,7 +315,7 @@ namespace MWScript
                         store = MWBase::Environment::get().getWorld()->getExterior(cx,cy);
                         if(!cell)
                         {
-                            std::string error = "PositionCell: unknown interior cell (" + cellID + "), moving to exterior instead";
+                            std::string error = "Warning: PositionCell: unknown interior cell (" + cellID + "), moving to exterior instead";
                             runtime.getContext().report (error);
                             std::cerr << error << std::endl;
                         }
@@ -434,7 +442,7 @@ namespace MWScript
                         pos.rot[2] = osg::DegreesToRadians(zRotDegrees);
                         MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(),itemID);
                         ref.getPtr().getCellRef().setPosition(pos);
-                        MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(),store,pos);
+                        MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->placeObject(ref.getPtr(),store,pos);
                         placed.getClass().adjustPosition(placed, true);
                     }
                 }
@@ -482,7 +490,7 @@ namespace MWScript
                     pos.rot[2] = osg::DegreesToRadians(zRotDegrees);
                     MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(),itemID);
                     ref.getPtr().getCellRef().setPosition(pos);
-                    MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(),store,pos);
+                    MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->placeObject(ref.getPtr(),store,pos);
                     placed.getClass().adjustPosition(placed, true);
                 }
         };
@@ -508,6 +516,9 @@ namespace MWScript
                     Interpreter::Type_Integer direction = runtime[0].mInteger;
                     runtime.pop();
 
+                    if (direction < 0 || direction > 3)
+                        throw std::runtime_error ("invalid direction");
+
                     if (count<0)
                         throw std::runtime_error ("count must be non-negative");
 
@@ -516,38 +527,10 @@ namespace MWScript
 
                     for (int i=0; i<count; ++i)
                     {
-                        ESM::Position ipos = actor.getRefData().getPosition();
-                        osg::Vec3f pos(ipos.asVec3());
-                        osg::Quat rot(ipos.rot[2], osg::Vec3f(0,0,-1));
-                        if(direction == 0) pos = pos + (rot * osg::Vec3f(0,1,0)) * distance;
-                        else if(direction == 1) pos = pos - (rot * osg::Vec3f(0,1,0)) * distance;
-                        else if(direction == 2) pos = pos - (rot * osg::Vec3f(1,0,0)) * distance;
-                        else if(direction == 3) pos = pos + (rot * osg::Vec3f(1,0,0)) * distance;
-                        else throw std::runtime_error ("direction must be 0,1,2 or 3");
-
-                        ipos.pos[0] = pos.x();
-                        ipos.pos[1] = pos.y();
-                        ipos.pos[2] = pos.z();
-
-                        if (actor.getClass().isActor())
-                        {
-                            // TODO: should this depend on the 'direction' parameter?
-                            ipos.rot[0] = 0;
-                            ipos.rot[1] = 0;
-                            ipos.rot[2] = 0;
-                        }
-                        else
-                        {
-                            ipos.rot[0] = actor.getRefData().getPosition().rot[0];
-                            ipos.rot[1] = actor.getRefData().getPosition().rot[1];
-                            ipos.rot[2] = actor.getRefData().getPosition().rot[2];
-                        }
                         // create item
-                        MWWorld::CellStore* store = actor.getCell();
                         MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), itemID, 1);
-                        ref.getPtr().getCellRef().setPosition(ipos);
 
-                        MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(),store,ipos);
+                        MWBase::Environment::get().getWorld()->safePlaceObject(ref.getPtr(), actor, actor.getCell(), direction, distance);
                     }
                 }
         };

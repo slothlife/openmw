@@ -19,6 +19,7 @@
 #include "../mwmechanics/aifollow.hpp"
 #include "../mwmechanics/aitravel.hpp"
 #include "../mwmechanics/aiwander.hpp"
+#include "../mwmechanics/aiface.hpp"
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -371,21 +372,14 @@ namespace MWScript
 
                 virtual void execute (Interpreter::Runtime& runtime)
                 {
-                    MWWorld::Ptr observer = R()(runtime);
+                    MWWorld::Ptr observer = R()(runtime, false); // required=false
+
                     std::string actorID = runtime.getStringLiteral (runtime[0].mInteger);
                     runtime.pop();
 
                     MWWorld::Ptr actor = MWBase::Environment::get().getWorld()->getPtr(actorID, true);
 
-                    if(!actor.getClass().isActor() || !observer.getClass().isActor())
-                    {
-                        runtime.push(0);
-                        return;
-                    }
-
-                    Interpreter::Type_Integer value =
-                            MWBase::Environment::get().getWorld()->getLOS(observer, actor) &&
-                            MWBase::Environment::get().getMechanicsManager()->awarenessCheck(actor, observer);
+                    Interpreter::Type_Integer value = MWBase::Environment::get().getMechanicsManager()->isActorDetected(actor, observer);
 
                     runtime.push (value);
                 }
@@ -465,7 +459,6 @@ namespace MWScript
                 }
         };
 
-        template<class R>
         class OpToggleAI : public Interpreter::Opcode0
         {
             public:
@@ -484,7 +477,16 @@ namespace MWScript
         public:
             virtual void execute(Interpreter::Runtime& runtime)
             {
-                /// \todo implement
+                MWWorld::Ptr actor = R()(runtime);
+
+                Interpreter::Type_Float x = runtime[0].mFloat;
+                runtime.pop();
+
+                Interpreter::Type_Float y = runtime[0].mFloat;
+                runtime.pop();
+
+                MWMechanics::AiFace facePackage(x, y);
+                actor.getClass().getCreatureStats(actor).getAiSequence().stack(facePackage, actor);
             }
         };
 
@@ -520,8 +522,7 @@ namespace MWScript
             interpreter.installSegment5 (Compiler::Ai::opcodeStartCombatExplicit, new OpStartCombat<ExplicitRef>);
             interpreter.installSegment5 (Compiler::Ai::opcodeStopCombat, new OpStopCombat<ImplicitRef>);
             interpreter.installSegment5 (Compiler::Ai::opcodeStopCombatExplicit, new OpStopCombat<ExplicitRef>);
-            interpreter.installSegment5 (Compiler::Ai::opcodeToggleAI, new OpToggleAI<ImplicitRef>);
-            interpreter.installSegment5 (Compiler::Ai::opcodeToggleAIExplicit, new OpToggleAI<ExplicitRef>);
+            interpreter.installSegment5 (Compiler::Ai::opcodeToggleAI, new OpToggleAI);
 
             interpreter.installSegment5 (Compiler::Ai::opcodeSetHello, new OpSetAiSetting<ImplicitRef>(0));
             interpreter.installSegment5 (Compiler::Ai::opcodeSetHelloExplicit, new OpSetAiSetting<ExplicitRef>(0));

@@ -3,17 +3,15 @@
 #include <MyGUI_ScrollBar.h>
 #include <MyGUI_Window.h>
 #include <MyGUI_ComboBox.h>
-#include <MyGUI_ListBox.h>
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_Gui.h>
 #include <MyGUI_TabControl.h>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/math/common_factor_rt.hpp>
+#include <boost/math/common_factor.hpp>
 
 #include <SDL_video.h>
 
-#include <components/misc/stringops.hpp>
 #include <components/widgets/sharedstatebutton.hpp>
 #include <components/settings/settings.hpp>
 
@@ -33,7 +31,7 @@ namespace
         if (val == "linear")  return "Trilinear";
         if (val == "nearest") return "Bilinear";
         if (val != "none")
-            std::cerr<< "Invalid texture mipmap option: "<<val <<std::endl;
+            std::cerr<< "Warning: Invalid texture mipmap option: "<<val <<std::endl;
         return "Other";
     }
 
@@ -260,7 +258,7 @@ namespace MWGui
 
     void SettingsWindow::onOkButtonClicked(MyGUI::Widget* _sender)
     {
-        exit();
+        MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Settings);
     }
 
     void SettingsWindow::onResolutionSelected(MyGUI::ListBox* _sender, size_t index)
@@ -355,24 +353,31 @@ namespace MWGui
             }
 
             bool supported = false;
+            int fallbackX = 0, fallbackY = 0;
             for (unsigned int i=0; i<mResolutionList->getItemCount(); ++i)
             {
                 std::string resStr = mResolutionList->getItemNameAt(i);
                 int resX, resY;
                 parseResolution (resX, resY, resStr);
 
+                if (i == 0)
+                {
+                    fallbackX = resX;
+                    fallbackY = resY;
+                }
+
                 if (resX == Settings::Manager::getInt("resolution x", "Video")
                     && resY  == Settings::Manager::getInt("resolution y", "Video"))
                     supported = true;
             }
 
-            if (!supported)
+            if (!supported && mResolutionList->getItemCount())
             {
-                std::string msg = "This resolution is not supported in Fullscreen mode. Please select a resolution from the list.";
-                MWBase::Environment::get().getWindowManager()->
-                    messageBox(msg);
-                _sender->castType<MyGUI::Button>()->setCaption(off);
-                return;
+                if (fallbackX != 0 && fallbackY != 0)
+                {
+                    Settings::Manager::setInt("resolution x", "Video", fallbackX);
+                    Settings::Manager::setInt("resolution y", "Video", fallbackY);
+                }
             }
 
             mWindowBorderButton->setEnabled(!newState);
@@ -466,9 +471,6 @@ namespace MWGui
         else
             actions = MWBase::Environment::get().getInputManager()->getActionControllerSorting();
 
-        const int h = 18;
-        const int w = mControlsBox->getWidth() - 28;
-        int curH = 0;
         for (std::vector<int>::const_iterator it = actions.begin(); it != actions.end(); ++it)
         {
             std::string desc = MWBase::Environment::get().getInputManager()->getActionDescription (*it);
@@ -481,16 +483,15 @@ namespace MWGui
             else
                 binding = MWBase::Environment::get().getInputManager()->getActionControllerBindingName(*it);
 
-            Gui::SharedStateButton* leftText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(0,curH,w,h), MyGUI::Align::Default);
+            Gui::SharedStateButton* leftText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(), MyGUI::Align::Default);
             leftText->setCaptionWithReplacing(desc);
 
-            Gui::SharedStateButton* rightText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(0,curH,w,h), MyGUI::Align::Default);
+            Gui::SharedStateButton* rightText = mControlsBox->createWidget<Gui::SharedStateButton>("SandTextButton", MyGUI::IntCoord(), MyGUI::Align::Default);
             rightText->setCaptionWithReplacing(binding);
             rightText->setTextAlign (MyGUI::Align::Right);
             rightText->setUserData(*it); // save the action id for callbacks
             rightText->eventMouseButtonClick += MyGUI::newDelegate(this, &SettingsWindow::onRebindAction);
             rightText->eventMouseWheel += MyGUI::newDelegate(this, &SettingsWindow::onInputTabMouseWheel);
-            curH += h;
 
             Gui::ButtonGroup group;
             group.push_back(leftText);
@@ -498,9 +499,25 @@ namespace MWGui
             Gui::SharedStateButton::createButtonGroup(group);
         }
 
+        layoutControlsBox();
+    }
+
+    void SettingsWindow::layoutControlsBox()
+    {
+        const int h = 18;
+        const int w = mControlsBox->getWidth() - 28;
+        const int noWidgetsInRow = 2;
+        const int totalH = mControlsBox->getChildCount() / noWidgetsInRow * h;
+
+        for (size_t i = 0; i < mControlsBox->getChildCount(); i++)
+        {
+            MyGUI::Widget * widget = mControlsBox->getChildAt(i);
+            widget->setCoord(0, i / noWidgetsInRow * h, w, h);
+        }
+
         // Canvas size must be expressed with VScroll disabled, otherwise MyGUI would expand the scroll area when the scrollbar is hidden
         mControlsBox->setVisibleVScroll(false);
-        mControlsBox->setCanvasSize (mControlsBox->getWidth(), std::max(curH, mControlsBox->getHeight()));
+        mControlsBox->setCanvasSize (mControlsBox->getWidth(), std::max(totalH, mControlsBox->getHeight()));
         mControlsBox->setVisibleVScroll(true);
     }
 
@@ -543,20 +560,15 @@ namespace MWGui
         updateControlsBox ();
     }
 
-    void SettingsWindow::open()
+    void SettingsWindow::onOpen()
     {
         updateControlsBox ();
         resetScrollbars();
     }
 
-    void SettingsWindow::exit()
-    {
-        MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Settings);
-    }
-
     void SettingsWindow::onWindowResize(MyGUI::Window *_sender)
     {
-        updateControlsBox();
+        layoutControlsBox();
     }
 
     void SettingsWindow::resetScrollbars()

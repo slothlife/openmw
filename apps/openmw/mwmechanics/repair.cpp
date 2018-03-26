@@ -8,7 +8,6 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/soundmanager.hpp"
 
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/class.hpp"
@@ -71,19 +70,18 @@ void Repair::repair(const MWWorld::Ptr &itemToRepair)
         // increase skill
         player.getClass().skillUsageSucceeded(player, ESM::Skill::Armorer, 0);
 
-        MWBase::Environment::get().getSoundManager()->playSound("Repair",1,1);
+        MWBase::Environment::get().getWindowManager()->playSound("Repair");
         MWBase::Environment::get().getWindowManager()->messageBox("#{sRepairSuccess}");
     }
     else
     {
-        MWBase::Environment::get().getSoundManager()->playSound("Repair Fail",1,1);
+        MWBase::Environment::get().getWindowManager()->playSound("Repair Fail");
         MWBase::Environment::get().getWindowManager()->messageBox("#{sRepairFailed}");
     }
 
     // tool used up?
     if (mTool.getCellRef().getCharge() == 0)
     {
-        MWWorld::Ptr player = getPlayer();
         MWWorld::ContainerStore& store = player.getClass().getContainerStore(player);
 
         store.remove(mTool, 1, player);
@@ -100,6 +98,9 @@ void Repair::repair(const MWWorld::Ptr &itemToRepair)
             if (Misc::StringUtils::ciEqual(iter->getCellRef().getRefId(), mTool.getCellRef().getRefId()))
             {
                 mTool = *iter;
+
+                MWBase::Environment::get().getWindowManager()->playSound("Item Repair Up");
+
                 break;
             }
         }

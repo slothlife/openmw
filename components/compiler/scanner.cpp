@@ -27,6 +27,7 @@ namespace Compiler
         if (c=='\n')
         {
             mStrictKeywords = false;
+            mTolerantNames = false;
             mLoc.mColumn = 0;
             ++mLoc.mLine;
             mLoc.mLiteral.clear();
@@ -260,7 +261,7 @@ namespace Compiler
         return true;
     }
 
-    static const char *keywords[] =
+    static const char *sKeywords[] =
     {
         "begin", "end",
         "short", "long", "float",
@@ -306,11 +307,11 @@ namespace Compiler
 
         std::string lowerCase = Misc::StringUtils::lowerCase(name);
 
-        for (; keywords[i]; ++i)
-            if (lowerCase==keywords[i])
+        for (; sKeywords[i]; ++i)
+            if (lowerCase==sKeywords[i])
                 break;
 
-        if (keywords[i])
+        if (sKeywords[i])
         {
             cont = parser.parseKeyword (i, loc, *this);
             return true;
@@ -363,7 +364,7 @@ namespace Compiler
             }
             else if (!(c=='"' && name.empty()))
             {
-                if (!isStringCharacter (c))
+                if (!isStringCharacter (c) && !(mTolerantNames && (c=='.' || c=='-')))
                 {
                     putback (c);
                     break;
@@ -408,6 +409,11 @@ namespace Compiler
                     special = S_cmpEQ;
                 else if (c=='=')
                     special = S_cmpEQ;
+                else if (c == '>' || c == '<')  // Treat => and =< as ==
+                {
+                    special = S_cmpEQ;
+                    mErrorHandler.warning (std::string("invalid operator =") + c + ", treating it as ==", mLoc);
+                }
                 else
                 {
                     special = S_cmpEQ;
@@ -572,7 +578,7 @@ namespace Compiler
         const Extensions *extensions)
     : mErrorHandler (errorHandler), mStream (inputStream), mExtensions (extensions),
       mPutback (Putback_None), mPutbackCode(0), mPutbackInteger(0), mPutbackFloat(0),
-      mStrictKeywords (false)
+      mStrictKeywords (false), mTolerantNames (false)
     {
     }
 
@@ -618,8 +624,8 @@ namespace Compiler
 
     void Scanner::listKeywords (std::vector<std::string>& keywords)
     {
-        for (int i=0; Compiler::keywords[i]; ++i)
-            keywords.push_back (Compiler::keywords[i]);
+        for (int i=0; Compiler::sKeywords[i]; ++i)
+            keywords.push_back (Compiler::sKeywords[i]);
 
         if (mExtensions)
             mExtensions->listKeywords (keywords);
@@ -628,5 +634,10 @@ namespace Compiler
     void Scanner::enableStrictKeywords()
     {
         mStrictKeywords = true;
+    }
+
+    void Scanner::enableTolerantNames()
+    {
+        mTolerantNames = true;
     }
 }

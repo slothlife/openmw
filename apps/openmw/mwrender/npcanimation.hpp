@@ -5,6 +5,7 @@
 
 #include "../mwworld/inventorystore.hpp"
 
+#include "actoranimation.hpp"
 #include "weaponanimation.hpp"
 
 namespace ESM
@@ -19,11 +20,11 @@ namespace MWRender
 class NeckController;
 class HeadAnimationTime;
 
-class NpcAnimation : public Animation, public WeaponAnimation, public MWWorld::InventoryStoreListener
+class NpcAnimation : public ActorAnimation, public WeaponAnimation, public MWWorld::InventoryStoreListener
 {
 public:
     virtual void equipmentChanged();
-    virtual void permanentEffectAdded(const ESM::MagicEffect *magicEffect, bool isNew, bool playSound);
+    virtual void permanentEffectAdded(const ESM::MagicEffect *magicEffect, bool isNew);
 
 public:
     typedef std::map<ESM::PartReferenceType,std::string> PartBoneMap;
@@ -36,8 +37,6 @@ public:
 
 private:
     static const PartBoneMap sPartList;
-
-    bool mListenerDisabled;
 
     // Bounded Parts
     PartHolderPtr mObjectParts[ESM::PRT_Count];
@@ -65,8 +64,8 @@ private:
     // Field of view to use when rendering first person meshes
     float mFirstPersonFieldOfView;
 
-    boost::shared_ptr<HeadAnimationTime> mHeadAnimationTime;
-    boost::shared_ptr<WeaponAnimationTime> mWeaponAnimationTime;
+    std::shared_ptr<HeadAnimationTime> mHeadAnimationTime;
+    std::shared_ptr<WeaponAnimationTime> mWeaponAnimationTime;
 
     bool mSoundsDisabled;
 
@@ -91,6 +90,9 @@ private:
 
     osg::ref_ptr<NeckController> mFirstPersonNeckController;
 
+    static bool isFirstPersonPart(const ESM::BodyPart* bodypart);
+    static bool isFemalePart(const ESM::BodyPart* bodypart);
+
 protected:
     virtual void addControllers();
 
@@ -104,7 +106,7 @@ public:
      * @param disableSounds    Same as \a disableListener but for playing items sounds
      * @param viewMode
      */
-    NpcAnimation(const MWWorld::Ptr& ptr, osg::ref_ptr<osg::Group> parentNode, Resource::ResourceSystem* resourceSystem, bool disableListener = false,
+    NpcAnimation(const MWWorld::Ptr& ptr, osg::ref_ptr<osg::Group> parentNode, Resource::ResourceSystem* resourceSystem,
                  bool disableSounds = false, ViewMode viewMode=VM_Normal, float firstPersonFieldOfView=55.f);
     virtual ~NpcAnimation();
 

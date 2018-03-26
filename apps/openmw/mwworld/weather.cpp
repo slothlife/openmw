@@ -9,7 +9,6 @@
 #include <components/fallback/fallback.hpp>
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 #include "../mwbase/soundmanager.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
@@ -96,8 +95,8 @@ T TimeOfDayInterpolator<T>::getValue(const float gameHour, const TimeOfDaySettin
 
 
 
-template class TimeOfDayInterpolator<float>;
-template class TimeOfDayInterpolator<osg::Vec4f>;
+template class MWWorld::TimeOfDayInterpolator<float>;
+template class MWWorld::TimeOfDayInterpolator<osg::Vec4f>;
 
 Weather::Weather(const std::string& name,
                  const Fallback::Map& fallback,
@@ -520,6 +519,7 @@ WeatherManager::WeatherManager(MWRender::RenderingManager& rendering, const Fall
     , mSecunda("Secunda", fallback)
     , mWindSpeed(0.f)
     , mIsStorm(false)
+    , mPrecipitation(false)
     , mStormDirection(0,1,0)
     , mCurrentRegion()
     , mTimePassed(0)
@@ -531,7 +531,7 @@ WeatherManager::WeatherManager(MWRender::RenderingManager& rendering, const Fall
     , mQueuedWeather(0)
     , mRegions()
     , mResult()
-    , mAmbientSound()
+    , mAmbientSound(nullptr)
     , mPlayingSoundID()
 {
     mTimeSettings.mNightStart = mSunsetTime + mSunsetDuration;
@@ -608,14 +608,11 @@ void WeatherManager::modRegion(const std::string& regionID, const std::vector<ch
     }
 }
 
-void WeatherManager::playerTeleported()
+void WeatherManager::playerTeleported(const std::string& playerRegion, bool isExterior)
 {
     // If the player teleports to an outdoors cell in a new region (for instance, by travelling), the weather needs to
     // be changed immediately, and any transitions for the previous region discarded.
-    MWBase::World* world = MWBase::Environment::get().getWorld();
-    if(world->isCellExterior() || world->isCellQuasiExterior())
     {
-        std::string playerRegion = Misc::StringUtils::lowerCase(world->getPlayerPtr().getCell()->getCell()->mRegion);
         std::map<std::string, RegionWeather>::iterator it = mRegions.find(playerRegion);
         if(it != mRegions.end() && playerRegion != mCurrentRegion)
         {
@@ -625,11 +622,9 @@ void WeatherManager::playerTeleported()
     }
 }
 
-void WeatherManager::update(float duration, bool paused)
+void WeatherManager::update(float duration, bool paused, const TimeStamp& time, bool isExterior)
 {
     MWWorld::ConstPtr player = MWMechanics::getPlayer();
-    MWBase::World& world = *MWBase::Environment::get().getWorld();
-    TimeStamp time = world.getTimeStamp();
 
     if(!paused || mFastForward)
     {
@@ -647,8 +642,7 @@ void WeatherManager::update(float duration, bool paused)
         updateWeatherTransitions(duration);
     }
 
-    const bool exterior = (world.isCellExterior() || world.isCellQuasiExterior());
-    if(!exterior)
+    if(!isExterior)
     {
         mRendering.setSkyEnabled(false);
         stopSounds();
@@ -659,6 +653,10 @@ void WeatherManager::update(float duration, bool paused)
 
     mWindSpeed = mResult.mWindSpeed;
     mIsStorm = mResult.mIsStorm;
+
+    // For some reason Ash Storm is not considered as a precipitation weather in game
+    mPrecipitation = !(mResult.mParticleEffect.empty() && mResult.mRainEffect.empty())
+                                    && mResult.mParticleEffect != "meshes\\ashcloud.nif";
 
     if (mIsStorm)
     {
@@ -695,9 +693,9 @@ void WeatherManager::update(float duration, bool paused)
 
         double theta;
         if ( !is_night ) {
-            theta = M_PI * (adjustedHour - mSunriseTime) / dayDuration;
+            theta = static_cast<float>(osg::PI) * (adjustedHour - mSunriseTime) / dayDuration;
         } else {
-            theta = M_PI * (1.f - (adjustedHour - adjustedNightStart) / nightDuration);
+            theta = static_cast<float>(osg::PI) * (1.f - (adjustedHour - adjustedNightStart) / nightDuration);
         }
 
         osg::Vec3f final(
@@ -722,7 +720,7 @@ void WeatherManager::update(float duration, bool paused)
 
     mRendering.configureFog(mResult.mFogDepth, underwaterFog, mResult.mFogColor);
     mRendering.setAmbientColour(mResult.mAmbientColor);
-    mRendering.setSunColour(mResult.mSunColor);
+    mRendering.setSunColour(mResult.mSunColor, mResult.mSunColor * mResult.mGlareView);
 
     mRendering.getSkyManager()->setWeather(mResult);
 
@@ -731,19 +729,21 @@ void WeatherManager::update(float duration, bool paused)
     {
         stopSounds();
         if (!mResult.mAmbientLoopSoundID.empty())
-            mAmbientSound = MWBase::Environment::get().getSoundManager()->playSound(mResult.mAmbientLoopSoundID, 1.0, 1.0, MWBase::SoundManager::Play_TypeSfx, MWBase::SoundManager::Play_Loop);
-
+            mAmbientSound = MWBase::Environment::get().getSoundManager()->playSound(
+                mResult.mAmbientLoopSoundID, mResult.mAmbientSoundVolume, 1.0,
+                MWSound::Type::Sfx, MWSound::PlayMode::Loop
+            );
         mPlayingSoundID = mResult.mAmbientLoopSoundID;
     }
-    if (mAmbientSound.get())
+    else if (mAmbientSound)
         mAmbientSound->setVolume(mResult.mAmbientSoundVolume);
 }
 
 void WeatherManager::stopSounds()
 {
-    if (mAmbientSound.get())
+    if (mAmbientSound)
         MWBase::Environment::get().getSoundManager()->stopSound(mAmbientSound);
-    mAmbientSound.reset();
+    mAmbientSound = nullptr;
     mPlayingSoundID.clear();
 }
 
@@ -775,12 +775,11 @@ unsigned int WeatherManager::getWeatherID() const
     return mCurrentWeather;
 }
 
-bool WeatherManager::isDark() const
+bool WeatherManager::useTorches(float hour) const
 {
-    TimeStamp time = MWBase::Environment::get().getWorld()->getTimeStamp();
-    bool exterior = (MWBase::Environment::get().getWorld()->isCellExterior()
-                     || MWBase::Environment::get().getWorld()->isCellQuasiExterior());
-    return exterior && (time.getHour() < mSunriseTime || time.getHour() > mTimeSettings.mNightStart - 1);
+    bool isDark = hour < mSunriseTime || hour > mTimeSettings.mNightStart - 1;
+
+    return isDark && !mPrecipitation;
 }
 
 void WeatherManager::write(ESM::ESMWriter& writer, Loading::Listener& progress)
@@ -832,17 +831,14 @@ bool WeatherManager::readRecord(ESM::ESMReader& reader, uint32_t type)
             mQueuedWeather = state.mQueuedWeather;
 
             mRegions.clear();
-            std::map<std::string, ESM::RegionWeatherState>::iterator it = state.mRegions.begin();
-            if(it == state.mRegions.end())
+            importRegions();
+
+            for(std::map<std::string, ESM::RegionWeatherState>::iterator it = state.mRegions.begin(); it != state.mRegions.end(); ++it)
             {
-                // When loading an imported save, the region modifiers aren't currently being set, so just reset them.
-                importRegions();
-            }
-            else
-            {
-                for(; it != state.mRegions.end(); ++it)
+                std::map<std::string, RegionWeather>::iterator found = mRegions.find(it->first);
+                if (found != mRegions.end())
                 {
-                    mRegions.insert(std::make_pair(it->first, RegionWeather(it->second)));
+                    found->second = RegionWeather(it->second);
                 }
             }
         }
@@ -892,8 +888,7 @@ inline void WeatherManager::regionalWeatherChanged(const std::string& regionID, 
     MWWorld::ConstPtr player = MWMechanics::getPlayer();
     if(player.isInCell())
     {
-        std::string playerRegion = Misc::StringUtils::lowerCase(player.getCell()->getCell()->mRegion);
-        if(!playerRegion.empty() && (playerRegion == regionID))
+        if(Misc::StringUtils::ciEqual(regionID, mCurrentRegion))
         {
             addWeatherTransition(region.getWeather());
         }
@@ -1073,7 +1068,7 @@ inline void WeatherManager::calculateResult(const int weatherID, const float gam
         mResult.mSunDiscColor = lerp(osg::Vec4f(1,1,1,1), current.mSunDiscSunsetColor, factor);
         // The SunDiscSunsetColor in the INI isn't exactly the resulting color on screen, most likely because
         // MW applied the color to the ambient term as well. After the ambient and emissive terms are added together, the fixed pipeline
-        // would then clamp the total lighting to (1,1,1). A noticable change in color tone can be observed when only one of the color components gets clamped.
+        // would then clamp the total lighting to (1,1,1). A noticeable change in color tone can be observed when only one of the color components gets clamped.
         // Unfortunately that means we can't use the INI color as is, have to replicate the above nonsense.
         mResult.mSunDiscColor = mResult.mSunDiscColor + osg::componentMultiply(mResult.mSunDiscColor, mResult.mAmbientColor);
         for (int i=0; i<3; ++i)

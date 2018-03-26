@@ -15,6 +15,11 @@ namespace MWGui
         mSourceModel = sourceModel;
     }
 
+    bool TradeItemModel::allowedToUseItems() const
+    {
+        return true;
+    }
+
     ItemStack TradeItemModel::getItem (ModelIndex index)
     {
         if (index < 0)
@@ -163,6 +168,10 @@ namespace MWGui
                 MWWorld::Ptr base = item.mBase;
                 if(Misc::StringUtils::ciEqual(base.getCellRef().getRefId(), MWWorld::ContainerStore::sGoldId))
                     continue;
+
+                if (!base.getClass().showsInInventory(base))
+                    return;
+
                 if(!base.getClass().canSell(base, services))
                     continue;
 

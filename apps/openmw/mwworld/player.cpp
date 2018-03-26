@@ -212,7 +212,7 @@ namespace MWWorld
 
         MWWorld::Ptr player = getPlayer();
         const MWMechanics::NpcStats &playerStats = player.getClass().getNpcStats(player);
-        if (playerStats.isParalyzed() || playerStats.getKnockedDown())
+        if (playerStats.isParalyzed() || playerStats.getKnockedDown() || playerStats.isDead())
             return;
 
         MWWorld::Ptr toActivate = MWBase::Environment::get().getWorld()->getFacedObject();
@@ -220,16 +220,8 @@ namespace MWWorld
         if (toActivate.isEmpty())
             return;
 
-        if (toActivate.getClass().getName(toActivate) == "") // objects without name presented to user can never be activated
+        if (!toActivate.getClass().canBeActivated(toActivate))
             return;
-
-        if (toActivate.getClass().isActor())
-        {
-            MWMechanics::CreatureStats &stats = toActivate.getClass().getCreatureStats(toActivate);
-
-            if (stats.getAiSequence().isInCombat() && !stats.isDead())
-                return;
-        }
 
         MWBase::Environment::get().getWorld()->activate(toActivate, player);
     }
@@ -258,7 +250,12 @@ namespace MWWorld
         return MWBase::Environment::get().getMechanicsManager()->getActorsFighting(getPlayer()).size() != 0;
     }
 
-    void Player::markPosition(CellStore *markedCell, ESM::Position markedPosition)
+    bool Player::enemiesNearby()
+    {
+        return MWBase::Environment::get().getMechanicsManager()->getEnemiesNearby(getPlayer()).size() != 0;
+    }
+
+    void Player::markPosition(CellStore *markedCell, const ESM::Position& markedPosition)
     {
         mMarkedCell = markedCell;
         mMarkedPosition = markedPosition;
@@ -279,6 +276,29 @@ namespace MWWorld
         mAutoMove = false;
         mForwardBackward = 0;
         mTeleported = false;
+        mAttackingOrSpell = false;
+        mCurrentCrimeId = -1;
+        mPaidCrimeId = -1;
+        mLastKnownExteriorPosition = osg::Vec3f(0,0,0);
+
+        for (int i=0; i<ESM::Skill::Length; ++i)
+        {
+            mSaveSkills[i].setBase(0);
+            mSaveSkills[i].setModifier(0);
+        }
+
+        for (int i=0; i<ESM::Attribute::Length; ++i)
+        {
+            mSaveAttributes[i].setBase(0);
+            mSaveAttributes[i].setModifier(0);
+        }
+
+        mMarkedPosition.pos[0] = 0;
+        mMarkedPosition.pos[1] = 0;
+        mMarkedPosition.pos[2] = 0;
+        mMarkedPosition.rot[0] = 0;
+        mMarkedPosition.rot[1] = 0;
+        mMarkedPosition.rot[2] = 0;
     }
 
     void Player::write (ESM::ESMWriter& writer, Loading::Listener& progress) const
@@ -331,6 +351,12 @@ namespace MWWorld
                 throw std::runtime_error ("invalid player state record (object state)");
             }
 
+            if (!player.mObject.mEnabled)
+            {
+                std::cerr << "Warning: Savegame attempted to disable the player." << std::endl;
+                player.mObject.mEnabled = true;
+            }
+
             mPlayer.load (player.mObject);
 
             for (int i=0; i<ESM::Attribute::Length; ++i)
@@ -354,13 +380,9 @@ namespace MWWorld
             }
             catch (...)
             {
-                std::cerr << "Player cell '" << player.mCellId.mWorldspace << "' no longer exists" << std::endl;
-                // Cell no longer exists. Place the player in a default cell.
-                ESM::Position pos = mPlayer.mData.getPosition();
-                MWBase::Environment::get().getWorld()->indexToPosition(0, 0, pos.pos[0], pos.pos[1], true);
-                pos.pos[2] = 0;
-                mPlayer.mData.setPosition(pos);
-                mCellStore = world.getExterior(0,0);
+                std::cerr << "Warning: Player cell '" << player.mCellId.mWorldspace << "' no longer exists" << std::endl;
+                // Cell no longer exists. The loader will have to choose a default cell.
+                mCellStore = NULL;
             }
 
             if (!player.mBirthsign.empty())

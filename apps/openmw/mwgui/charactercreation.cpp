@@ -13,6 +13,7 @@
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
+#include "../mwworld/player.hpp"
 
 #include "textinput.hpp"
 #include "race.hpp"
@@ -62,8 +63,8 @@ namespace
 namespace MWGui
 {
 
-    CharacterCreation::CharacterCreation(osgViewer::Viewer* viewer, Resource::ResourceSystem* resourceSystem)
-        : mViewer(viewer)
+    CharacterCreation::CharacterCreation(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
+        : mParent(parent)
         , mResourceSystem(resourceSystem)
         , mNameDialog(0)
         , mRaceDialog(0)
@@ -132,6 +133,12 @@ namespace MWGui
             mReviewDialog->configureSkills(major, minor);
     }
 
+    void CharacterCreation::onFrame(float duration)
+    {
+        if (mReviewDialog)
+            mReviewDialog->onFrame(duration);
+    }
+
     void CharacterCreation::spawnDialog(const char id)
     {
         try
@@ -152,7 +159,7 @@ namespace MWGui
                 case GM_Race:
                     MWBase::Environment::get().getWindowManager()->removeDialog(mRaceDialog);
                     mRaceDialog = 0;
-                    mRaceDialog = new RaceDialog(mViewer, mResourceSystem);
+                    mRaceDialog = new RaceDialog(mParent, mResourceSystem);
                     mRaceDialog->setNextButtonShow(mCreationStage >= CSE_RaceChosen);
                     mRaceDialog->setRaceId(mPlayerRaceId);
                     mRaceDialog->eventDone += MyGUI::newDelegate(this, &CharacterCreation::onRaceDialogDone);
@@ -177,7 +184,7 @@ namespace MWGui
                     mPickClassDialog = 0;
                     mPickClassDialog = new PickClassDialog();
                     mPickClassDialog->setNextButtonShow(mCreationStage >= CSE_ClassChosen);
-                    mPickClassDialog->setClassId(mPlayerClass.mName);
+                    mPickClassDialog->setClassId(mPlayerClass.mId);
                     mPickClassDialog->eventDone += MyGUI::newDelegate(this, &CharacterCreation::onPickClassDialogDone);
                     mPickClassDialog->eventBack += MyGUI::newDelegate(this, &CharacterCreation::onPickClassDialogBack);
                     mPickClassDialog->setVisible(true);
@@ -224,14 +231,23 @@ namespace MWGui
                     MWBase::Environment::get().getWindowManager()->removeDialog(mReviewDialog);
                     mReviewDialog = 0;
                     mReviewDialog = new ReviewDialog();
-                    mReviewDialog->setPlayerName(mPlayerName);
-                    mReviewDialog->setRace(mPlayerRaceId);
-                    mReviewDialog->setClass(mPlayerClass);
-                    mReviewDialog->setBirthSign(mPlayerBirthSignId);
+
+                    MWBase::World *world = MWBase::Environment::get().getWorld();
+
+                    const ESM::NPC *playerNpc = world->getPlayerPtr().get<ESM::NPC>()->mBase;
+
+                    const MWWorld::Player player = world->getPlayer();
+
+                    const ESM::Class *playerClass = world->getStore().get<ESM::Class>().find(playerNpc->mClass);
+
+                    mReviewDialog->setPlayerName(playerNpc->mName);
+                    mReviewDialog->setRace(playerNpc->mRace);
+                    mReviewDialog->setClass(*playerClass);
+                    mReviewDialog->setBirthSign(player.getBirthSign());
 
                     {
-                        MWWorld::Ptr player = MWMechanics::getPlayer();
-                        const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
+                        MWWorld::Ptr playerPtr = MWMechanics::getPlayer();
+                        const MWMechanics::CreatureStats& stats = playerPtr.getClass().getCreatureStats(playerPtr);
 
                         mReviewDialog->setHealth ( stats.getHealth()  );
                         mReviewDialog->setMagicka( stats.getMagicka() );
@@ -268,7 +284,7 @@ namespace MWGui
         }
         catch (std::exception& e)
         {
-            std::cerr << "Failed to create chargen window: " << e.what() << std::endl;
+            std::cerr << "Error: Failed to create chargen window: " << e.what() << std::endl;
         }
     }
 
@@ -586,7 +602,7 @@ namespace MWGui
                     mGenerateClass = "Mage";
                 else
                 {
-                    std::cerr << "Failed to deduce class from chosen answers in generate class dialog" << std::endl;
+                    std::cout << "Failed to deduce class from chosen answers in generate class dialog" << std::endl;
                     mGenerateClass = "Thief";
                 }
             }

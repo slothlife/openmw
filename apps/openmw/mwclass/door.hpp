@@ -20,11 +20,15 @@ namespace MWClass
 
             virtual void insertObject(const MWWorld::Ptr& ptr, const std::string& model, MWPhysics::PhysicsSystem& physics) const;
 
+            virtual bool isDoor() const;
+
+            virtual bool useAnim() const;
+
             virtual std::string getName (const MWWorld::ConstPtr& ptr) const;
             ///< \return name (the one that is to be presented to the user; not the internal one);
             /// can return an empty string.
 
-            virtual boost::shared_ptr<MWWorld::Action> activate (const MWWorld::Ptr& ptr,
+            virtual std::shared_ptr<MWWorld::Action> activate (const MWWorld::Ptr& ptr,
                 const MWWorld::Ptr& actor) const;
             ///< Generate action for activation
 
@@ -44,6 +48,9 @@ namespace MWClass
             ///< Unlock object
 
             virtual bool canLock(const MWWorld::ConstPtr &ptr) const;
+
+            virtual bool allowTelekinesis(const MWWorld::ConstPtr &ptr) const;
+            ///< Return whether this class of object can be activated with telekinesis
 
             virtual std::string getScript (const MWWorld::ConstPtr& ptr) const;
             ///< Return name of the script attached to ptr
